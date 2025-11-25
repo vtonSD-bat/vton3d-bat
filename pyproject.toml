@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "3dvton-bat"
+name = "vton3d-bat"
 version = "0.1.0"
 requires-python = ">=3.11"
 
@@ -14,8 +14,22 @@ dependencies = [
     "einops",
     "safetensors",
     "jupyter",
+    "gradio==5.17.1",
+    "viser==0.2.23",
+    "tqdm",
+    "hydra-core",
+    "omegaconf",
+    "opencv-python",
+    "scipy",
+    "onnxruntime",
+    "requests",
+    "trimesh",
+    "matplotlib",
+    "pydantic==2.10.6",
+
+    "lightglue @ git+https://github.com/jytime/LightGlue.git",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["3dvton"]
+include = ["vton3d"]
