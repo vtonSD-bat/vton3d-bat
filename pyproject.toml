@@ -11,6 +11,7 @@ dependencies = [
     "numpy==1.26.1",
     "Pillow",
     "huggingface_hub",
+    "transformers",
     "einops",
     "safetensors",
     "jupyter",
@@ -29,6 +30,7 @@ dependencies = [
 
     "lightglue @ git+https://github.com/jytime/LightGlue.git",
     "vggt @ git+https://github.com/vtonSD-bat/vggt.git",
+    "diffusers @ git+https://github.com/huggingface/diffusers.git",
 ]
 
 [tool.setuptools.packages.find]
