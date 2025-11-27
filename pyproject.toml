@@ -28,8 +28,9 @@ dependencies = [
     "pydantic==2.10.6",
 
     "lightglue @ git+https://github.com/jytime/LightGlue.git",
+    "vggt @ git+https://github.com/vtonSD-bat/vggt.git",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["vton3d"]
+include = ["vton3d",]

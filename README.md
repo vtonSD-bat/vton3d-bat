@@ -4,8 +4,7 @@ Main Repo for Virtual Try-On Pipeline
 ```
 Installation:
 1. Create a Venv environment
-2. Install Pytorch Cuda with your desired version from https://pytorch.org/get-started/locally/
-3. Run pip install -e .\external\vggt  
-4. Run pip install -e .
+2. Install Pytorch Cuda with your desired version from https://pytorch.org/get-started/locally/ 
+3. Run pip install -e .
 
 ```
