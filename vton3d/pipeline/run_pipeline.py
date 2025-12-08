@@ -1,0 +1,169 @@
+"""
+vton3d.pipeline.run_pipeline
+
+Purpose:
+--------
+This script is the main entry point for the complete VTON pipeline.
+
+Current functionality:
+- loads a YAML configuration file
+- automatically appends 'real' to the scene_dir from the config
+- runs vggt_colmap.py (VGGT + COLMAP reconstruction) as the first pipeline step
+
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+import argparse
+import yaml
+import torch
+
+from scripts.vggt_colmap import demo_fn, parse_args as vggt_parse_args
+from vton3d.qwen.run_qwen import run_qwen_from_config_dict
+
+
+#helper
+
+def load_config(config_path: str | Path) -> dict:
+    """
+    Load the YAML configuration file and return it as a dictionary.
+    """
+    config_path = Path(config_path)
+    with config_path.open("r") as f:
+        cfg = yaml.safe_load(f)
+    return cfg
+
+
+def build_vggt_args_from_config(cfg: dict):
+    """
+    Build the argument object for vggt_colmap.demo_fn() using the YAML config.
+
+    IMPORTANT:
+    - reads 'scene_dir' from cfg['paths']['scene_dir']
+    - appends 'real' → this is the directory VGGT should operate on
+    - maps remaining parameters from cfg['vggt'] to CLI-style arguments
+    """
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"])
+
+    #real dir is where real images are
+    real_scene_dir = base_scene_dir / "real"
+
+    vggt_cfg = cfg.get("vggt", {})
+
+    arglist: list[str] = [
+        "--scene_dir", str(real_scene_dir),
+    ]
+
+    if vggt_cfg.get("use_ba", False):
+        arglist.append("--use_ba")
+
+    mapping_keys = [
+        "max_reproj_error",
+        "shared_camera",
+        "camera_type",
+        "vis_thresh",
+        "query_frame_num",
+        "max_query_pts",
+        "fine_tracking",
+        "conf_thres_value",
+        "seed",
+    ]
+
+    for key in mapping_keys:
+        if key in vggt_cfg:
+            value = vggt_cfg[key]
+            arglist.extend([f"--{key}", str(value)])
+
+    vggt_args = vggt_parse_args(arglist)
+    return vggt_args
+
+
+# pipeline steps
+
+def run_step_vggt_colmap(cfg: dict):
+    """
+    First pipeline step:
+    - prepare VGGT arguments
+    - call vggt_colmap.demo_fn()
+    """
+    print("=== [Step 1] VGGT + COLMAP Reconstruction ===")
+
+    vggt_args = build_vggt_args_from_config(cfg)
+
+    print(f"  -> Base scene path: {cfg['paths']['scene_dir']}")
+    print(f"  -> Using scene subdirectory: {vggt_args.scene_dir}")
+
+    with torch.no_grad():
+        demo_fn(vggt_args)
+
+    print("=== [Step VGGT] Done ===\n")
+
+
+def run_step_qwen_clothing(cfg: dict):
+    """
+    Second pipeline step:
+    run the Qwen clothing edit batch and store outputs in <scene_dir>/qwen/images.
+    Qwen uses input images from <scene_dir>/real/images.
+    """
+    print("=== [Step 2] Qwen VTON edit ===")
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"])
+
+    input_dir = base_scene_dir / "real" / "images"
+    output_dir = base_scene_dir / "qwen" / "images"
+
+    qwen_cfg = cfg.get("qwen", {}).copy()
+    if not qwen_cfg:
+        raise ValueError("Missing 'qwen' section in config for Qwen clothing step.")
+
+    qwen_cfg["source_dir"] = str(input_dir)
+    qwen_cfg["output_dir"] = str(output_dir)
+
+    print(f"  -> Qwen input images: {input_dir}")
+    print(f"  -> Qwen output directory: {output_dir}")
+
+    run_qwen_from_config_dict(qwen_cfg)
+
+    print("=== [Step Qwen] Done ===\n")
+
+
+
+
+def run_pipeline(config_path: str | Path):
+    """
+    Main pipeline function.
+
+    - loads YAML config
+    - runs the VGGT reconstruction step
+    - space for additional steps in the future
+    """
+    print(f"[Pipeline] Loading config: {config_path}")
+    cfg = load_config(config_path)
+
+    run_step_vggt_colmap(cfg)
+
+    run_step_qwen_clothing(cfg)
+
+    print("[Pipeline] All defined steps completed.")
+
+
+#cli
+def parse_cli_args():
+    """
+    CLI parser for this pipeline script.
+    """
+    parser = argparse.ArgumentParser(description="VTON3D Pipeline Runner")
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to a YAML config file",
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    cli_args = parse_cli_args()
+    run_pipeline(cli_args.config)
