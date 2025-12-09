@@ -136,9 +136,7 @@ def demo_fn(args):
 
     # Run VGGT to estimate camera and depth
     # Run with 518x518 images
-    #extrinsic, intrinsic, depth_map, depth_conf = run_VGGT(model, images, dtype, vggt_fixed_resolution)
-    extrinsic, intrinsic, depth_map, depth_conf = (torch.load("data/vggt_predictions_scene03.pt")[k] for k in
-                                                   ("extrinsic", "intrinsic", "depth_map", "depth_conf"))
+    extrinsic, intrinsic, depth_map, depth_conf = run_VGGT(model, images, dtype, vggt_fixed_resolution)
     points_3d = unproject_depth_map_to_point_map(depth_map, extrinsic, intrinsic)
 
     if args.use_ba:

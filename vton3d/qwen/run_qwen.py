@@ -156,7 +156,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
     for img_path in image_files:
         person_image = Image.open(img_path).convert("RGB")
-        generator = base_generator.clone()
+        generator = torch.Generator(device="cpu").manual_seed(seed)
 
         inputs = {
             "image": [person_image, clothing_image],

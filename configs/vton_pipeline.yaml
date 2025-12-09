@@ -1,0 +1,41 @@
+paths:
+  # Base path of your scene
+  # VGGT will use: <scene_dir>/real/images/
+  # Qwen will use: <scene_dir>/real/images/
+  scene_dir: "data/flo_16"
+
+vggt:
+  # Whether bundle adjustment should run
+  use_ba: false
+
+  # VGGT reconstruction parameters
+  max_reproj_error: 8.0
+  shared_camera: false
+  camera_type: "SIMPLE_PINHOLE"
+  vis_thresh: 0.2
+  query_frame_num: 8
+  max_query_pts: 4096
+  fine_tracking: true
+  conf_thres_value: 5.0
+  seed: 42
+
+qwen:
+  # Model to load
+  model_path: "ovedrive/Qwen-Image-Edit-2509-4bit"
+
+  # Clothing image given by the user (e.g. shirt)
+  clothing_image: "data/flo_16/test_bild_shirt.jpg"
+
+  # Prompt settings for Qwen
+  prompt: "Replace the person's original clothing with the clothing image. Do not invent new features. Keep the person identical: pose, body, face, hair, and background must remain unchanged."
+  negative_prompt: "change pose"
+
+  # Diffusion parameters
+  true_cfg_scale: 4.0
+  num_inference_steps: 20
+
+  # Random seed
+  seed: 0
+
+  # File extensions for images in <scene_dir>/real/images/
+  extensions: [".jpg", ".jpeg", ".png"]

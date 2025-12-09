@@ -19,9 +19,9 @@ import argparse
 import yaml
 import torch
 
-from scripts.vggt_colmap import demo_fn, parse_args as vggt_parse_args
+from scripts.vggt_colmap import demo_fn
 from vton3d.qwen.run_qwen import run_qwen_from_config_dict
-
+from argparse import Namespace
 
 #helper
 
@@ -35,49 +35,33 @@ def load_config(config_path: str | Path) -> dict:
     return cfg
 
 
-def build_vggt_args_from_config(cfg: dict):
+def build_vggt_args_from_config(cfg: dict) -> Namespace:
     """
-    Build the argument object for vggt_colmap.demo_fn() using the YAML config.
+    Build an argparse.Namespace for vggt_colmap.demo_fn() using the YAML config.
 
-    IMPORTANT:
-    - reads 'scene_dir' from cfg['paths']['scene_dir']
-    - appends 'real' → this is the directory VGGT should operate on
-    - maps remaining parameters from cfg['vggt'] to CLI-style arguments
+    It reads 'scene_dir' from cfg['paths']['scene_dir'],
+    appends 'real', and maps additional parameters from cfg['vggt'].
     """
-
     base_scene_dir = Path(cfg["paths"]["scene_dir"])
-
-    #real dir is where real images are
     real_scene_dir = base_scene_dir / "real"
 
     vggt_cfg = cfg.get("vggt", {})
 
-    arglist: list[str] = [
-        "--scene_dir", str(real_scene_dir),
-    ]
+    args = Namespace(
+        scene_dir=str(real_scene_dir),
+        seed=int(vggt_cfg.get("seed", 42)),
+        use_ba=bool(vggt_cfg.get("use_ba", False)),
+        max_reproj_error=float(vggt_cfg.get("max_reproj_error", 8.0)),
+        shared_camera=bool(vggt_cfg.get("shared_camera", False)),
+        camera_type=str(vggt_cfg.get("camera_type", "SIMPLE_PINHOLE")),
+        vis_thresh=float(vggt_cfg.get("vis_thresh", 0.2)),
+        query_frame_num=int(vggt_cfg.get("query_frame_num", 8)),
+        max_query_pts=int(vggt_cfg.get("max_query_pts", 4096)),
+        fine_tracking=bool(vggt_cfg.get("fine_tracking", True)),
+        conf_thres_value=float(vggt_cfg.get("conf_thres_value", 5.0)),
+    )
 
-    if vggt_cfg.get("use_ba", False):
-        arglist.append("--use_ba")
-
-    mapping_keys = [
-        "max_reproj_error",
-        "shared_camera",
-        "camera_type",
-        "vis_thresh",
-        "query_frame_num",
-        "max_query_pts",
-        "fine_tracking",
-        "conf_thres_value",
-        "seed",
-    ]
-
-    for key in mapping_keys:
-        if key in vggt_cfg:
-            value = vggt_cfg[key]
-            arglist.extend([f"--{key}", str(value)])
-
-    vggt_args = vggt_parse_args(arglist)
-    return vggt_args
+    return args
 
 
 # pipeline steps
