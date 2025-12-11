@@ -59,6 +59,9 @@ def parse_args():
     parser.add_argument(
         "--conf_thres_value", type=float, default=5.0, help="Confidence threshold value for depth filtering (wo BA)"
     )
+    parser.add_argument("--keep_top_percent", type=float, default=0.2, help="Keep this fraction of highest-confidence points (e.g. 0.2 = best 20%)"
+    )
+
     return parser.parse_args()
 
 
@@ -192,30 +195,48 @@ def demo_fn(args):
 
         reconstruction_resolution = img_load_resolution
     else:
-        conf_thres_value = args.conf_thres_value
-        max_points_for_colmap = 100000  # randomly sample 3D points
-        shared_camera = False  # in the feedforward manner, we do not support shared camera
-        camera_type = "PINHOLE"  # in the feedforward manner, we only support PINHOLE camera
+        # Number of points passed to COLMAP
+        max_points_for_colmap = 100000
+        shared_camera = False      # feedforward VGGT mode does not support shared camera
+        camera_type = "PINHOLE"    # feedforward VGGT mode uses PINHOLE
 
         image_size = np.array([vggt_fixed_resolution, vggt_fixed_resolution])
         num_frames, height, width, _ = points_3d.shape
 
-        points_rgb = F.interpolate(
-            images, size=(vggt_fixed_resolution, vggt_fixed_resolution), mode="bilinear", align_corners=False
-        )
+        # Downsample RGB to VGGT shape
+        points_rgb = F.interpolate(images, size=(vggt_fixed_resolution, vggt_fixed_resolution), mode="bilinear", align_corners=False,)
         points_rgb = (points_rgb.cpu().numpy() * 255).astype(np.uint8)
         points_rgb = points_rgb.transpose(0, 2, 3, 1)
 
-        # (S, H, W, 3), with x, y coordinates and frame indices
+        # Pixel coordinate grid: (S, H, W, 3) → x, y, frame index
         points_xyf = create_pixel_coordinate_grid(num_frames, height, width)
 
+        # === NEW: Adaptive confidence threshold from YAML ===
+        keep_top = args.keep_top_percent        # e.g. 0.2 → keep best 20%
+        flat_conf = depth_conf.reshape(-1)
+
+        # quantile defines threshold below which we drop points
+        quantile = 1.0 - keep_top               # e.g. 0.8 → drop worst 80%
+        conf_thres_value = np.quantile(flat_conf, quantile)
+
+        print("\n[VGGT] Adaptive depth_conf filtering:")
+        print(f"  total points: {flat_conf.shape[0]}")
+        print(f"  depth_conf min={flat_conf.min():.4f} max={flat_conf.max():.4f} mean={flat_conf.mean():.4f}")
+        print(f"  keep_top_percent={keep_top} → threshold={conf_thres_value:.4f}")
+
+        # Apply mask
         conf_mask = depth_conf >= conf_thres_value
-        # at most writing 100000 3d points to colmap reconstruction object
+        num_kept_before_limit = int(conf_mask.sum())
+        print(f"  points above threshold (before limit): {num_kept_before_limit}")
+
+        # Limit to max_points_for_colmap
         conf_mask = randomly_limit_trues(conf_mask, max_points_for_colmap)
 
+        # Filter points
         points_3d = points_3d[conf_mask]
         points_xyf = points_xyf[conf_mask]
         points_rgb = points_rgb[conf_mask]
+
 
         print("Converting to COLMAP format")
         reconstruction = batch_np_matrix_to_pycolmap_wo_track(

@@ -34,7 +34,6 @@ def load_config(config_path: str | Path) -> dict:
         cfg = yaml.safe_load(f)
     return cfg
 
-
 def build_vggt_args_from_config(cfg: dict) -> Namespace:
     """
     Build an argparse.Namespace for vggt_colmap.demo_fn() using the YAML config.
@@ -59,6 +58,7 @@ def build_vggt_args_from_config(cfg: dict) -> Namespace:
         max_query_pts=int(vggt_cfg.get("max_query_pts", 4096)),
         fine_tracking=bool(vggt_cfg.get("fine_tracking", True)),
         conf_thres_value=float(vggt_cfg.get("conf_thres_value", 5.0)),
+        keep_top_percent=float(vggt_cfg.get("keep_top_percent", 0.2)),
     )
 
     return args

@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -p performance
-#SBATCH -w server0109
-#SBATCH --job-name=vton_pipeline
+#SBATCH -w server0105
+#SBATCH --job-name=feature_t
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
-#SBATCH --time=4:00:00
+#SBATCH --time=2:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=45G

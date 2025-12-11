@@ -17,6 +17,7 @@ vggt:
   max_query_pts: 4096
   fine_tracking: true
   conf_thres_value: 5.0
+  keep_top_percent: 0.2
   seed: 42
 
 qwen:
