@@ -175,9 +175,6 @@ def run_step_gsplat(cfg: dict):
 
     print("=== [Step GSplat] Done ===\n")
 
-
-
-
 def run_pipeline(config_path: str | Path):
     """
     Main pipeline function.
