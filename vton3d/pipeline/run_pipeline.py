@@ -142,21 +142,19 @@ def run_step_qwen_clothing(cfg: dict):
 
 
 def run_step_gsplat(cfg: dict):
-    """
-    Third pipeline step:
-    Run gsplat examples/simple_trainer.py
-    """
     print("=== [Step 3] GSplat training ===")
 
-    project_root = Path(__file__).resolve().parents[2]   #PROJECT_ROOT
+    project_root = Path(__file__).resolve().parents[2]
     gsplat_repo = project_root / "gsplat"
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"])
     data_dir = base_scene_dir / "qwen"
     result_dir = base_scene_dir / "results" / "qwen_gsplat"
 
+    conda_python = Path.home() / ".conda" / "envs" / "gsplat310" / "bin" / "python"
+
     cmd = [
-        "python",
+        str(conda_python),
         "examples/simple_trainer.py",
         "default",
         "--data_dir", str(data_dir),
@@ -166,21 +164,17 @@ def run_step_gsplat(cfg: dict):
     ]
 
     env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = str(
-        cfg.get("gsplat", {}).get("cuda_visible_devices", 0)
-    )
+    env.pop("PYTHONPATH", None)
+    env["PYTHONNOUSERSITE"] = "1"
+    env["CUDA_VISIBLE_DEVICES"] = str(cfg.get("gsplat", {}).get("cuda_visible_devices", 0))
 
     print(f"  -> gsplat repo: {gsplat_repo}")
     print(f"  -> running: {' '.join(cmd)}")
 
-    subprocess.run(
-        cmd,
-        cwd=str(gsplat_repo),   # ⬅️ DAS ist der entscheidende Punkt
-        env=env,
-        check=True,
-    )
+    subprocess.run(cmd, cwd=str(gsplat_repo), env=env, check=True)
 
     print("=== [Step GSplat] Done ===\n")
+
 
 
 
