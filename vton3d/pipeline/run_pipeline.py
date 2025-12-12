@@ -18,6 +18,9 @@ from pathlib import Path
 import argparse
 import yaml
 import torch
+import os
+import subprocess
+
 
 from scripts.vggt_colmap import demo_fn
 from vton3d.qwen.run_qwen import run_qwen_from_config_dict
@@ -113,6 +116,47 @@ def run_step_qwen_clothing(cfg: dict):
     print("=== [Step Qwen] Done ===\n")
 
 
+def run_step_gsplat(cfg: dict):
+    """
+    Third pipeline step:
+    Run gsplat examples/simple_trainer.py
+    """
+    print("=== [Step 3] GSplat training ===")
+
+    project_root = Path(__file__).resolve().parents[2]   # PROJECT_ROOT
+    gsplat_repo = project_root / "gsplat"
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"])
+    data_dir = base_scene_dir / "qwen"
+    result_dir = base_scene_dir / "results" / "qwen_gsplat"
+
+    cmd = [
+        "python",
+        "examples/simple_trainer.py",
+        "default",
+        "--data_dir", str(data_dir),
+        "--data_factor", "1",
+        "--result_dir", str(result_dir),
+        "--disable_viewer", "True",
+    ]
+
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = str(
+        cfg.get("gsplat", {}).get("cuda_visible_devices", 0)
+    )
+
+    print(f"  -> gsplat repo: {gsplat_repo}")
+    print(f"  -> running: {' '.join(cmd)}")
+
+    subprocess.run(
+        cmd,
+        cwd=str(gsplat_repo),   # ⬅️ DAS ist der entscheidende Punkt
+        env=env,
+        check=True,
+    )
+
+    print("=== [Step GSplat] Done ===\n")
+
 
 
 def run_pipeline(config_path: str | Path):
@@ -129,6 +173,8 @@ def run_pipeline(config_path: str | Path):
     run_step_vggt_colmap(cfg)
 
     run_step_qwen_clothing(cfg)
+
+    run_step_gsplat(cfg)
 
     print("[Pipeline] All defined steps completed.")
 
