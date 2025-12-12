@@ -20,6 +20,7 @@ import yaml
 import torch
 import os
 import subprocess
+import shutil
 
 
 from scripts.vggt_colmap import demo_fn
@@ -36,6 +37,25 @@ def load_config(config_path: str | Path) -> dict:
     with config_path.open("r") as f:
         cfg = yaml.safe_load(f)
     return cfg
+
+def copy_colmap_sparse(real_scene_dir: Path, qwen_scene_dir: Path):
+    """
+    Copy COLMAP sparse reconstruction from real -> qwen.
+    Expects:
+      real_scene_dir/sparse exists (usually sparse/0/*)
+    Creates:
+      qwen_scene_dir/sparse (same structure)
+    """
+    src = real_scene_dir / "sparse"
+    dst = qwen_scene_dir / "sparse"
+
+    if not src.exists():
+        raise FileNotFoundError(f"Missing COLMAP sparse folder: {src}")
+
+    # Copy whole sparse tree; overwrite if exists
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    print(f"  -> Copied COLMAP sparse: {src}  ->  {dst}")
+
 
 def build_vggt_args_from_config(cfg: dict) -> Namespace:
     """
@@ -113,6 +133,11 @@ def run_step_qwen_clothing(cfg: dict):
 
     run_qwen_from_config_dict(qwen_cfg)
 
+    real_scene_dir = base_scene_dir / "real"
+    qwen_scene_dir = base_scene_dir / "qwen"
+    copy_colmap_sparse(real_scene_dir, qwen_scene_dir)
+
+
     print("=== [Step Qwen] Done ===\n")
 
 
@@ -123,7 +148,7 @@ def run_step_gsplat(cfg: dict):
     """
     print("=== [Step 3] GSplat training ===")
 
-    project_root = Path(__file__).resolve().parents[2]   # PROJECT_ROOT
+    project_root = Path(__file__).resolve().parents[2]   #PROJECT_ROOT
     gsplat_repo = project_root / "gsplat"
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"])

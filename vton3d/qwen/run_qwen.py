@@ -171,7 +171,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             output = pipeline(**inputs)
 
         output_image = output.images[0]
-        out_path = output_dir / f"{img_path.stem}_edited.png"
+        out_path = output_dir / f"{img_path.stem}.png"
         output_image.save(out_path)
 
         clear_gpu_cache()
