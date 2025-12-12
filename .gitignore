@@ -6,3 +6,4 @@ dist/
 data/
 *.pyc
 logs/
+.venv/
