@@ -26,8 +26,33 @@ import shutil
 from scripts.vggt_colmap import demo_fn
 from vton3d.qwen.run_qwen import run_qwen_from_config_dict
 from argparse import Namespace
+from PIL import Image
+
 
 #helper
+def normalize_images_to_png(images_dir: Path, remove_jpg: bool = False):
+    """
+    Convert all .jpg/.jpeg images in images_dir to .png with same stem.
+    Optionally remove the original jpg files.
+    """
+    images_dir = images_dir.resolve()
+    converted = 0
+
+    for img_path in images_dir.iterdir():
+        if img_path.suffix.lower() in [".jpg", ".jpeg"]:
+            png_path = img_path.with_suffix(".png")
+            if png_path.exists():
+                continue
+
+            img = Image.open(img_path).convert("RGB")
+            img.save(png_path)
+            converted += 1
+
+            if remove_jpg:
+                img_path.unlink()
+
+    print(f"  -> Normalized images to PNG in {images_dir} (converted {converted})")
+
 
 def load_config(config_path: str | Path) -> dict:
     """
@@ -183,6 +208,11 @@ def run_pipeline(config_path: str | Path):
     """
     print(f"[Pipeline] Loading config: {config_path}")
     cfg = load_config(config_path)
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"]).expanduser().resolve()
+    real_images_dir = base_scene_dir / "real" / "images"
+
+    normalize_images_to_png(real_images_dir, remove_jpg=False)
 
     run_step_vggt_colmap(cfg)
 
