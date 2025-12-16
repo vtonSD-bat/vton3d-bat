@@ -148,8 +148,8 @@ def run_step_gsplat(cfg: dict):
     gsplat_repo = project_root / "gsplat"
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"])
-    data_dir = base_scene_dir / "qwen"
-    result_dir = base_scene_dir / "results" / "qwen_gsplat"
+    data_dir = Path("..") / base_scene_dir / "qwen"
+    result_dir = Path("..") / base_scene_dir / "results" / "qwen_gsplat"
 
     conda_python = Path.home() / ".conda" / "envs" / "gsplat310" / "bin" / "python"
 
@@ -159,9 +159,7 @@ def run_step_gsplat(cfg: dict):
         "default",
         "--data_dir", str(data_dir),
         "--data_factor", "1",
-        "--result_dir", str(result_dir),
-        "--disable_viewer", "True",
-    ]
+        "--result_dir", str(result_dir),]
 
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
