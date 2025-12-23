@@ -6,7 +6,7 @@ Installation (Only Linux):
 1. Go in create_envs.sh and set your desired Cuda Pytorch version 
 (from https://pytorch.org/get-started/locally/) in this line: 
 
-echo ">>> Installing PyTorch CUDA 12.8 for vton"
+echo ">>> Installing PyTorch CUDA for vton"
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
 2. Create Conda Envs by running sbatch create_envs.sh 
