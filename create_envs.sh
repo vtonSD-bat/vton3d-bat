@@ -13,9 +13,9 @@ echo ">>> Initializing conda"
 eval "$(conda shell.bash hook)"
 
 
-##############################################
-# 1) V T O N   E N V
-##############################################
+
+# vton Env
+
 
 ENV_NAME_VTON=vton
 
@@ -43,9 +43,7 @@ conda deactivate
 
 
 
-##############################################
-# 2) G S P L A T   E N V
-##############################################
+# Gaussian Splatting Env
 
 ENV_NAME_GSPLAT=gsplat310vton
 
