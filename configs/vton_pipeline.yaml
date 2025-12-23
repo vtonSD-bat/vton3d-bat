@@ -2,12 +2,11 @@ paths:
   # Base path of your scene
   # VGGT will use: <scene_dir>/real/images/
   # Qwen will use: <scene_dir>/real/images/
+  # Gsparse will use: <scene_dir>/qwen/images/
   scene_dir: "data/flo_16"
 
 vggt:
-  # Whether bundle adjustment should run
   use_ba: false
-
   # VGGT reconstruction parameters
   max_reproj_error: 8.0
   shared_camera: false
@@ -21,10 +20,10 @@ vggt:
   seed: 42
 
 qwen:
-  # Model to load
+  #qwen model
   model_path: "ovedrive/Qwen-Image-Edit-2509-4bit"
 
-  # Clothing image given by the user (e.g. shirt)
+  # Clothing image given by the user
   clothing_image: "data/flo_16/test_bild_shirt.jpg"
 
   # Prompt settings for Qwen
