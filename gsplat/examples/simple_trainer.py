@@ -21,6 +21,7 @@ from datasets.traj import (
     generate_interpolated_path,
     generate_spiral_path,
 )
+#from fused_ssim import fused_ssim
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
@@ -68,7 +69,7 @@ class Config:
     camera_model: Literal["pinhole", "ortho", "fisheye"] = "pinhole"
 
     # Port for the viewer server
-    port: int = 8080
+    port: int = 8580
 
     # Batch size for training. Learning rates are scaled automatically
     batch_size: int = 1
@@ -681,10 +682,16 @@ class Runner:
 
             # loss
             l1loss = F.l1_loss(colors, pixels)
-            ssimloss = 1.0 - fused_ssim(
-                colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2), padding="valid"
-            )
+
+            # Für SSIM: torchmetrics verwenden statt fused_ssim
+            colors_p = colors.permute(0, 3, 1, 2)  # [B, 3, H, W]
+            pixels_p = pixels.permute(0, 3, 1, 2)  # [B, 3, H, W]
+
+            ssim_val = self.ssim(colors_p, pixels_p)   # ~[0,1], 1 = perfekt
+            ssimloss = 1.0 - ssim_val
+
             loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
+
             if cfg.depth_loss:
                 # query depths from depth map
                 points = torch.stack(

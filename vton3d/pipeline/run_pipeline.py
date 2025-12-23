@@ -166,38 +166,6 @@ def run_step_qwen_clothing(cfg: dict):
     print("=== [Step Qwen] Done ===\n")
 
 
-def run_step_gsplat(cfg: dict):
-    print("=== [Step 3] GSplat training ===")
-
-    project_root = Path(__file__).resolve().parents[2]
-    gsplat_repo = project_root / "gsplat"
-
-    base_scene_dir = Path(cfg["paths"]["scene_dir"])
-    data_dir = Path("..") / base_scene_dir / "qwen"
-    result_dir = Path("..") / base_scene_dir / "results" / "qwen_gsplat"
-
-    conda_python = Path.home() / ".conda" / "envs" / "gsplat310" / "bin" / "python"
-
-    cmd = [
-        str(conda_python),
-        "examples/simple_trainer.py",
-        "default",
-        "--data_dir", str(data_dir),
-        "--data_factor", "1",
-        "--result_dir", str(result_dir),]
-
-    env = os.environ.copy()
-    env.pop("PYTHONPATH", None)
-    env["PYTHONNOUSERSITE"] = "1"
-    env["CUDA_VISIBLE_DEVICES"] = str(cfg.get("gsplat", {}).get("cuda_visible_devices", 0))
-
-    print(f"  -> gsplat repo: {gsplat_repo}")
-    print(f"  -> running: {' '.join(cmd)}")
-
-    subprocess.run(cmd, cwd=str(gsplat_repo), env=env, check=True)
-
-    print("=== [Step GSplat] Done ===\n")
-
 def run_pipeline(config_path: str | Path):
     """
     Main pipeline function.
@@ -212,13 +180,11 @@ def run_pipeline(config_path: str | Path):
     base_scene_dir = Path(cfg["paths"]["scene_dir"]).expanduser().resolve()
     real_images_dir = base_scene_dir / "real" / "images"
 
-    normalize_images_to_png(real_images_dir, remove_jpg=False)
+    normalize_images_to_png(real_images_dir, remove_jpg=True)
 
     run_step_vggt_colmap(cfg)
 
     run_step_qwen_clothing(cfg)
-
-    run_step_gsplat(cfg)
 
     print("[Pipeline] All defined steps completed.")
 

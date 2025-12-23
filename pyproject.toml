@@ -37,10 +37,6 @@ dependencies = [
     "lightglue @ git+https://github.com/jytime/LightGlue.git",
     "vggt @ git+https://github.com/vtonSD-bat/vggt.git",
     "diffusers @ git+https://github.com/huggingface/diffusers.git",
-    "gsplat @ git+https://github.com/nerfstudio-project/gsplat.git",
-    "fused-ssim @ git+https://github.com/rahul-goel/fused-ssim@328dc9836f513d00c4b5bc38fe30478b4435cbb5 ; sys_platform != 'win32'",
-    "nerfview @ git+https://github.com/nerfstudio-project/nerfview@4538024fe0d15fd1a0e4d760f3695fc44ca72787",
-
 ]
 
 [tool.setuptools.packages.find]
