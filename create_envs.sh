@@ -32,7 +32,7 @@ python -V
 echo ">>> Upgrading pip"
 pip install -U pip
 
-echo ">>> Installing PyTorch CUDA 12.8 for vton"
+echo ">>> Installing PyTorch CUDA for vton"
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
 echo ">>> Installing vton project with pip -e"
