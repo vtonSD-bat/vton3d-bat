@@ -1,6 +1,12 @@
 .idea
 *.egg-info/
-.eggs/
+*.eggs/
 build/
 dist/
 data/
+*.pyc
+logs/
+.venv/
+__pycache__/
+*.cpython-312.pyc
+*.cpython-312.

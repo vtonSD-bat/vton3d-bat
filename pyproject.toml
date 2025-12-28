@@ -24,10 +24,16 @@ dependencies = [
     "scipy",
     "onnxruntime",
     "requests",
+    "accelerate>=0.26.0",
+    "bitsandbytes",
     "trimesh",
     "matplotlib",
+    "torchmetrics[image]",
     "pydantic==2.10.6",
+    "pycolmap==3.10.0",
+    "pyceres==2.3",
 
+    # Git dependencies
     "lightglue @ git+https://github.com/jytime/LightGlue.git",
     "vggt @ git+https://github.com/vtonSD-bat/vggt.git",
     "diffusers @ git+https://github.com/huggingface/diffusers.git",

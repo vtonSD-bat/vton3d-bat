@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Dict
+
+
+def load_config(path: Path) -> Dict[str, Any]:
+    """
+    Lädt Config aus YAML oder JSON.
+    - YAML: benötigt pyyaml (pip install pyyaml)
+    - JSON: keine extra deps
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+    suffix = path.suffix.lower()
+    text = path.read_text(encoding="utf-8")
+
+    if suffix in {".yaml", ".yml"}:
+        try:
+            import yaml  # type: ignore
+        except ImportError as e:
+            raise RuntimeError(
+                "YAML config requires PyYAML. Install with: pip install pyyaml"
+            ) from e
+        cfg = yaml.safe_load(text)
+        if not isinstance(cfg, dict):
+            raise ValueError("YAML root must be a mapping/dict.")
+        return cfg
+
+    if suffix == ".json":
+        cfg = json.loads(text)
+        if not isinstance(cfg, dict):
+            raise ValueError("JSON root must be an object/dict.")
+        return cfg
+
+    raise ValueError(f"Unsupported config format: {suffix} (use .yaml/.yml or .json)")
+
+
+def run_step_gsplat(cfg: dict) -> None:
+    print("=== [Step 3] GSplat training ===")
+
+    # Erwartet: cfg["paths"]["scene_dir"]
+    project_root = Path(__file__).resolve().parents[2]
+    gsplat_repo = project_root / "gsplat"
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"])
+    data_dir = Path("..") / base_scene_dir / "qwen"
+    result_dir = Path("..") / base_scene_dir / "results" / "qwen_gsplat"
+
+    cmd = [
+        sys.executable,  # aktuelles Python/Conda-Env
+        "examples/simple_trainer.py",
+        "default",
+        "--data_dir",
+        str(data_dir),
+        "--data_factor",
+        "1",
+        "--result_dir",
+        str(result_dir),
+    ]
+
+    print(f"  -> gsplat repo: {gsplat_repo}")
+    print(f"  -> running: {' '.join(cmd)}")
+
+    subprocess.run(cmd, cwd=str(gsplat_repo), check=True)
+
+    print("=== [Step GSplat] Done ===\n")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        "-c",
+        type=str,
+        required=True,
+        help="Path to config file (.yaml/.yml or .json)",
+    )
+    args = parser.parse_args()
+
+    cfg_path = Path(args.config).expanduser().resolve()
+    cfg = load_config(cfg_path)
+
+    run_step_gsplat(cfg)
+
+
+if __name__ == "__main__":
+    main()
