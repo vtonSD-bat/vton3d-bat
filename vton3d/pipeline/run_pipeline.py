@@ -21,6 +21,7 @@ import torch
 import os
 import subprocess
 import shutil
+import wandb
 
 
 from scripts.vggt_colmap import demo_fn
@@ -176,6 +177,22 @@ def run_pipeline(config_path: str | Path):
     """
     print(f"[Pipeline] Loading config: {config_path}")
     cfg = load_config(config_path)
+
+    wandb.login()
+
+    os.makedirs("logs", exist_ok=True)
+
+    wandb.init(
+        project="vton_pipeline",
+        name=cfg.get("wandb", {}).get("run_name", None),
+        config=cfg
+    )
+
+    run_id_path = Path("logs") / "wandb_current_pipe_id.txt"
+    with run_id_path.open("w") as f:
+        f.write(wandb.run.id)
+
+    print(f"[Pipeline] Saved WandB run ID to: {run_id_path}")
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"]).expanduser().resolve()
     real_images_dir = base_scene_dir / "real" / "images"

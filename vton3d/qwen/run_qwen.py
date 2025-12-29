@@ -5,6 +5,7 @@ import gc
 from PIL import Image
 import torch
 from diffusers import QwenImageEditPlusPipeline
+import wandb
 
 
 def parse_args() -> argparse.Namespace:
@@ -153,11 +154,11 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
     pipeline = load_pipeline(model_path)
     base_generator = torch.Generator(device="cpu").manual_seed(seed)
-
+    img_count = 0
+    wandb.log({"qwen/clothing_image": wandb.Image(clothing_image, caption=clothing_path.name)})
     for img_path in image_files:
         person_image = Image.open(img_path).convert("RGB")
         generator = torch.Generator(device="cpu").manual_seed(seed)
-
         inputs = {
             "image": [person_image, clothing_image],
             "prompt": prompt,
@@ -173,6 +174,14 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         output_image = output.images[0]
         out_path = output_dir / f"{img_path.stem}.png"
         output_image.save(out_path)
+
+        img_count += 1
+
+        wandb.log({
+            "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
+            "qwen/output_image": wandb.Image(output_image, caption=out_path.name),
+            "qwen/image_index": img_count,
+        })
 
         clear_gpu_cache()
 

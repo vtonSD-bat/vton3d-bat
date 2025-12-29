@@ -45,6 +45,10 @@ def load_config(path: Path) -> Dict[str, Any]:
 def run_step_gsplat(cfg: dict) -> None:
     print("=== [Step 3] GSplat training ===")
 
+    gs_cfg = cfg.get("gsplat", {})
+    test_every = gs_cfg.get("test_every", 8)
+    data_factor = gs_cfg.get("data_factor", 1)
+
     # Erwartet: cfg["paths"]["scene_dir"]
     project_root = Path(__file__).resolve().parents[2]
     gsplat_repo = project_root / "gsplat"
@@ -54,15 +58,13 @@ def run_step_gsplat(cfg: dict) -> None:
     result_dir = Path("..") / base_scene_dir / "results" / "qwen_gsplat"
 
     cmd = [
-        sys.executable,  # aktuelles Python/Conda-Env
+        sys.executable,
         "examples/simple_trainer.py",
         "default",
-        "--data_dir",
-        str(data_dir),
-        "--data_factor",
-        "1",
-        "--result_dir",
-        str(result_dir),
+        "--data_dir", str(data_dir),
+        "--data_factor", str(data_factor),
+        "--result_dir", str(result_dir),
+        "--test_every", str(test_every),
     ]
 
     print(f"  -> gsplat repo: {gsplat_repo}")

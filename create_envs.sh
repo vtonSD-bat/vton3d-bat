@@ -63,7 +63,7 @@ echo ">>> Upgrading pip"
 python -m pip install -U pip
 
 echo ">>> Installing numpy"
-python -m pip install numpy
+python -m pip install numpy wandb
 
 echo ">>> Installing PyTorch CUDA 12.1 for gsplat"
 python -m pip install "torch==2.4.0" --index-url https://download.pytorch.org/whl/cu121

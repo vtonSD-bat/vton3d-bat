@@ -15,6 +15,8 @@ import tqdm
 import tyro
 import viser
 import yaml
+import wandb
+
 from datasets.colmap import Dataset, Parser
 from datasets.traj import (
     generate_ellipse_path_z,
@@ -758,6 +760,16 @@ class Runner:
                     self.writer.add_image("train/render", canvas, step)
                 self.writer.flush()
 
+                log_dict = {
+                    "train/loss": float(loss.item()),
+                    "train/l1loss": float(l1loss.item()),
+                    "train/ssimloss": float(ssimloss.item()),
+                    "train/num_GS": len(self.splats["means"]),
+                    "train/mem_gb": float(mem),
+                }
+
+                wandb.log(log_dict, step=step)
+
             # save checkpoint before updating the model
             if step in [i - 1 for i in cfg.save_steps] or step == max_steps - 1:
                 mem = torch.cuda.max_memory_allocated() / 1024**3
@@ -1000,6 +1012,11 @@ class Runner:
                 self.writer.add_scalar(f"{stage}/{k}", v, step)
             self.writer.flush()
 
+            wandb.log(
+                {f"{stage}/{k}": float(v) for k, v in stats.items()},
+                step=step,
+            )
+
     @torch.no_grad()
     def render_traj(self, step: int):
         """Entry for trajectory rendering."""
@@ -1073,6 +1090,13 @@ class Runner:
             writer.append_data(canvas)
         writer.close()
         print(f"Video saved to {video_dir}/traj_{step}.mp4")
+
+        if self.world_rank == 0:
+            video_path = f"{video_dir}/traj_{step}.mp4"
+            wandb.log(
+                {"video/traj": wandb.Video(video_path, fps=15, format="mp4")},
+                step=step,
+            )
 
     @torch.no_grad()
     def run_compression(self, step: int):
@@ -1166,6 +1190,15 @@ class Runner:
 
 
 def main(local_rank: int, world_rank, world_size: int, cfg: Config):
+    if world_rank == 0:
+        run_id = open("../logs/wandb_current_pipe_id.txt").read().strip()
+        wandb.init(
+            project="vton_pipeline",
+            id=run_id,
+            resume="allow" if run_id is not None else None,
+            config=vars(cfg),
+        )
+
     if world_size > 1 and not cfg.disable_viewer:
         cfg.disable_viewer = True
         if world_rank == 0:
@@ -1193,6 +1226,8 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
         runner.viewer.complete()
         print("Viewer running... Ctrl+C to exit.")
         time.sleep(1000000)
+    if world_rank == 0:
+        wandb.finish()
 
 
 if __name__ == "__main__":

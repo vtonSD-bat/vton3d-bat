@@ -32,6 +32,7 @@ dependencies = [
     "pydantic==2.10.6",
     "pycolmap==3.10.0",
     "pyceres==2.3",
+    "wandb",
 
     # Git dependencies
     "lightglue @ git+https://github.com/jytime/LightGlue.git",

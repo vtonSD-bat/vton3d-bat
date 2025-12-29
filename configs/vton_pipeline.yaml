@@ -1,3 +1,5 @@
+run_name: "vton_flo_16"
+
 paths:
   # Base path of your scene
   # VGGT will use: <scene_dir>/real/images/
@@ -39,3 +41,7 @@ qwen:
 
   # File extensions for images in <scene_dir>/real/images/
   extensions: [".jpg", ".jpeg", ".png"]
+
+gsplat:
+  test_every: 8
+  data_factor: 1
