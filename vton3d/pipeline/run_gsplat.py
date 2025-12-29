@@ -48,6 +48,7 @@ def run_step_gsplat(cfg: dict) -> None:
     gs_cfg = cfg.get("gsplat", {})
     test_every = gs_cfg.get("test_every", 8)
     data_factor = gs_cfg.get("data_factor", 1)
+    eval_steps = gs_cfg.get("eval_steps", [7000, 30000])
 
     # Erwartet: cfg["paths"]["scene_dir"]
     project_root = Path(__file__).resolve().parents[2]
@@ -65,7 +66,7 @@ def run_step_gsplat(cfg: dict) -> None:
         "--data_factor", str(data_factor),
         "--result_dir", str(result_dir),
         "--test_every", str(test_every),
-        "--eval_steps", str(gs_cfg.get("eval_steps", [7000, 30000])),
+        "--eval_steps", *[str(s) for s in eval_steps],
     ]
 
     print(f"  -> gsplat repo: {gsplat_repo}")
