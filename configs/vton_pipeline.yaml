@@ -4,7 +4,7 @@ paths:
   # Base path of your scene
   # VGGT will use: <scene_dir>/real/images/
   # Qwen will use: <scene_dir>/real/images/
-  # Gsparse will use: <scene_dir>/qwen/images/
+  # Gsplat will use: <scene_dir>/qwen/images/
   scene_dir: "data/flo_16"
 
 vggt:
@@ -45,3 +45,4 @@ qwen:
 gsplat:
   test_every: 8
   data_factor: 1
+  eval_steps: [2_000, 5_000, 10_000, 15_000, 20_000, 25_000, 30_000]

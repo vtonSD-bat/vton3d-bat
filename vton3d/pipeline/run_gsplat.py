@@ -65,6 +65,7 @@ def run_step_gsplat(cfg: dict) -> None:
         "--data_factor", str(data_factor),
         "--result_dir", str(result_dir),
         "--test_every", str(test_every),
+        "--eval_steps", str(gs_cfg.get("eval_steps", [7000, 30000])),
     ]
 
     print(f"  -> gsplat repo: {gsplat_repo}")
