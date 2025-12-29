@@ -7,6 +7,8 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=10G
 
+
+
 set -e
 
 echo ">>> Initializing conda"
@@ -16,11 +18,16 @@ eval "$(conda shell.bash hook)"
 
 # vton Env
 
-
 ENV_NAME_VTON=vton
 
-echo ">>> Creating conda env: $ENV_NAME_VTON"
-conda create -n $ENV_NAME_VTON python=3.11 -y
+# >>> einzige Änderung: Env nur erstellen, wenn sie nicht existiert
+if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME_VTON"; then
+    echo ">>> Conda env '$ENV_NAME_VTON' already exists – skipping creation"
+else
+    echo ">>> Creating conda env: $ENV_NAME_VTON"
+    conda create -n $ENV_NAME_VTON python=3.11 -y
+fi
+# <<< Ende Änderung
 
 echo ">>> Activating $ENV_NAME_VTON"
 conda activate $ENV_NAME_VTON
@@ -47,8 +54,14 @@ conda deactivate
 
 ENV_NAME_GSPLAT=gsplat310vton
 
-echo ">>> Creating conda env: $ENV_NAME_GSPLAT"
-conda create -n $ENV_NAME_GSPLAT python=3.10 -y
+# >>> einzige Änderung: Env nur erstellen, wenn sie nicht existiert
+if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME_GSPLAT"; then
+    echo ">>> Conda env '$ENV_NAME_GSPLAT' already exists – skipping creation"
+else
+    echo ">>> Creating conda env: $ENV_NAME_GSPLAT"
+    conda create -n $ENV_NAME_GSPLAT python=3.10 -y
+fi
+# <<< Ende Änderung
 
 echo ">>> Activating $ENV_NAME_GSPLAT"
 conda activate $ENV_NAME_GSPLAT
