@@ -969,6 +969,11 @@ class Runner:
                     canvas,
                 )
 
+                wandb.log(
+                    {f"{stage}/image_{i}": wandb.Image(canvas, caption=f"{stage}_step{step}_{i}")},
+                    step=step,
+                )
+
                 pixels_p = pixels.permute(0, 3, 1, 2)  # [1, 3, H, W]
                 colors_p = colors.permute(0, 3, 1, 2)  # [1, 3, H, W]
                 metrics["psnr"].append(self.psnr(colors_p, pixels_p))
@@ -1091,12 +1096,6 @@ class Runner:
         writer.close()
         print(f"Video saved to {video_dir}/traj_{step}.mp4")
 
-        if self.world_rank == 0:
-            video_path = f"{video_dir}/traj_{step}.mp4"
-            wandb.log(
-                {"video/traj": wandb.Video(video_path, fps=15, format="mp4")},
-                step=step,
-            )
 
     @torch.no_grad()
     def run_compression(self, step: int):
