@@ -28,44 +28,44 @@ def get_clothing_class_idx(flag: str) -> int:
     return classes.index(target)
 
 
-def qwen_eval_masked(
-    img1_path: str,
-    img2_path: str,
-    flag: str,
-    estimator
-) -> float:
+
+
+def qwen_eval_masked(img1_path, img2_path, flag, estimator):
     """
-    Loads both images from paths, runs segmentation on the first image,
-    excludes either upper or lower clothing pixels based on the flag,
-    applies the same mask to both images, and computes MSE only on unmasked pixels.
+    Loads two images, segments the first image, excludes a clothing class
+    (upper or lower), computes MSE only on unmasked pixels, and returns
+    both the MSE value and a masked difference heatmap.
     """
     img1_bgr = cv2.imread(img1_path)
     img2_bgr = cv2.imread(img2_path)
 
     if img1_bgr is None:
         raise FileNotFoundError(f"Could not load image: {img1_path}")
-
     if img2_bgr is None:
         raise FileNotFoundError(f"Could not load image: {img2_path}")
 
     if img1_bgr.shape != img2_bgr.shape:
-        raise ValueError(f"Images have different shapes: {img1_bgr.shape} vs {img2_bgr.shape}")
+        raise ValueError("Images must have the same shape.")
 
     seg_map = estimator(img1_bgr).astype(np.int32)
-    class_idx = get_clothing_class_idx(flag)
 
-    clothing_mask = (seg_map == class_idx)
-    unmasked_mask = ~clothing_mask
+    flag = flag.lower()
+    class_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
+    class_idx = classes.index(class_name)
 
-    if not np.any(unmasked_mask):
-        raise ValueError("No unmasked pixels available for MSE computation.")
+    mask_exclude = (seg_map == class_idx)
+    mask_include = ~mask_exclude
 
     img1 = img1_bgr.astype(np.float32) / 255.0
     img2 = img2_bgr.astype(np.float32) / 255.0
 
-    mask3 = unmasked_mask[..., None]
+    diff = (img1 - img2) ** 2
+    diff_masked = diff[mask_include]
 
-    diff2 = (img1 - img2) ** 2
-    diff2_masked = diff2[mask3]
+    mse_value = diff_masked.mean().item()
 
-    return diff2_masked.mean().item()
+    abs_diff = np.abs(img1 - img2)
+    heatmap_gray = abs_diff.mean(axis=2)
+    heatmap_gray[mask_exclude] = 0.0
+
+    return mse_value, heatmap_gray

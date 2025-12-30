@@ -7,6 +7,11 @@ import torch
 from diffusers import QwenImageEditPlusPipeline
 import wandb
 
+from vton3d.utils.qwen_eval import qwen_eval_masked
+from sapiens_inference.segmentation import SapiensSegmentation, SapiensSegmentationType
+import numpy as np
+
+
 
 def parse_args() -> argparse.Namespace:
     """
@@ -156,6 +161,15 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     base_generator = torch.Generator(device="cpu").manual_seed(seed)
     img_count = 0
     wandb.log({"qwen/clothing_image": wandb.Image(clothing_image, caption=clothing_path.name)})
+
+    estimator = SapiensSegmentation(
+        SapiensSegmentationType.SEGMENTATION_1B,
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        dtype=torch.float16,
+    )
+
+    eval_flag = "upper"
+
     for img_path in image_files:
         person_image = Image.open(img_path).convert("RGB")
         generator = torch.Generator(device="cpu").manual_seed(seed)
@@ -177,12 +191,21 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         out_path = output_dir / f"{img_path.stem}.png"
         output_image.save(out_path)
 
+        mse_value, heatmap = qwen_eval_masked(
+            img1_path=str(img_path),
+            img2_path=str(out_path),
+            flag=eval_flag,
+            estimator=estimator,
+        )
+
         img_count += 1
 
         wandb.log({
             "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
             "qwen/output_image": wandb.Image(output_image, caption=out_path.name),
             "qwen/image_index": img_count,
+            f"qwen/mse_{eval_flag}": mse_value,
+            f"qwen/heatmap_{eval_flag}": wandb.Image(heatmap, caption=f"{img_path.stem}_heatmap_{eval_flag}"),
         })
 
         clear_gpu_cache()
