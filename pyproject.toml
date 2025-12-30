@@ -33,6 +33,8 @@ dependencies = [
     "pycolmap==3.10.0",
     "pyceres==2.3",
     "wandb",
+    "ultralytics==8.3.154",
+    "joblib==1.5.1",
 
     # Git dependencies
     "lightglue @ git+https://github.com/jytime/LightGlue.git",
