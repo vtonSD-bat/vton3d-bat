@@ -55,6 +55,32 @@ def normalize_images_to_png(images_dir: Path, remove_jpg: bool = False):
     print(f"  -> Normalized images to PNG in {images_dir} (converted {converted})")
 
 
+def resize_images_to_exact_size(
+    images_dir: Path,
+    target_height: int,
+    target_width: int,
+):
+    """
+    Resize all PNG images in images_dir to exactly (target_height x target_width),
+    without padding or cropping (aspect ratio may change).
+    Overwrites the existing PNG files.
+    """
+    images_dir = images_dir.resolve()
+    processed = 0
+
+    for img_path in images_dir.iterdir():
+        if img_path.suffix.lower() == ".png":
+            img = Image.open(img_path).convert("RGB")
+            img = img.resize((target_width, target_height), Image.LANCZOS)
+            img.save(img_path, format="PNG")
+            processed += 1
+
+    print(
+        f"  -> Resized {processed} PNG images in {images_dir} "
+        f"to {target_height}x{target_width}"
+    )
+
+
 def load_config(config_path: str | Path) -> dict:
     """
     Load the YAML configuration file and return it as a dictionary.
@@ -198,6 +224,12 @@ def run_pipeline(config_path: str | Path):
     real_images_dir = base_scene_dir / "real" / "images"
 
     normalize_images_to_png(real_images_dir, remove_jpg=True)
+
+    resize_images_to_exact_size(
+        real_images_dir,
+        target_height=1248,
+        target_width=704,
+    )
 
     run_step_vggt_colmap(cfg)
 

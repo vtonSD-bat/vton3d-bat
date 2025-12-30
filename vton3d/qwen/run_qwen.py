@@ -166,6 +166,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             "true_cfg_scale": true_cfg_scale,
             "negative_prompt": negative_prompt,
             "num_inference_steps": num_inference_steps,
+            "width": 704,
+            "height": 1248,
         }
 
         with torch.inference_mode():
