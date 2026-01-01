@@ -175,7 +175,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         dtype=torch.float16,
     )
 
-    eval_flag = "upper"
+    eval_flag = qwen_cfg.get("eval_flag", "upper")
 
     for img_path in image_files:
         person_image = Image.open(img_path).convert("RGB")
@@ -198,7 +198,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         out_path = output_dir / f"{img_path.stem}.png"
         output_image.save(out_path)
 
-        mse_value, heatmap = qwen_eval_masked(
+        mse_value, psnr_value, heatmap = qwen_eval_masked(
             img1_path=str(img_path),
             img2_path=str(out_path),
             flag=eval_flag,
@@ -211,8 +211,9 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
             "qwen/output_image": wandb.Image(output_image, caption=out_path.name),
             "qwen/image_index": img_count,
-            f"qwen/mse_{eval_flag}": mse_value,
-            f"qwen/heatmap_{eval_flag}": wandb.Image(heatmap, caption=f"{img_path.stem}_heatmap_{eval_flag}"),
+            f"qwen/mse_non_clothed_area_{eval_flag}_clothing": mse_value,
+            f"qwen/psnr_non_clothed_area_{eval_flag}_clothing": psnr_value,
+            f"qwen/heatmap_non_clothed_area_{eval_flag}_clothing": wandb.Image(heatmap, caption=f"{img_path.stem}_heatmap_{eval_flag}"),
         })
 
         clear_gpu_cache()
@@ -234,6 +235,7 @@ def main():
         "num_inference_steps": args.num_inference_steps,
         "seed": args.seed,
         "extensions": args.extensions,
+        "eval_flag": args.eval_flag if hasattr(args, "eval_flag") else "upper",
     }
     run_qwen_from_config_dict(qwen_cfg)
 

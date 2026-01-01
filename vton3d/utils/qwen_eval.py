@@ -35,7 +35,13 @@ def get_clothing_class_idx(flag: str) -> int:
 
     return classes.index(target)
 
-
+def compute_psnr_from_mse(mse_value: float, max_val: float = 1.0) -> float:
+    """
+    Computes PSNR from a given MSE value and maximum pixel value.
+    """
+    if mse_value <= 0.0:
+        return float("inf")
+    return 10.0 * np.log10((max_val ** 2) / mse_value)
 
 
 def qwen_eval_masked(img1_path, img2_path, flag, estimator):
@@ -71,9 +77,11 @@ def qwen_eval_masked(img1_path, img2_path, flag, estimator):
     diff_masked = diff[mask_include]
 
     mse_value = diff_masked.mean().item()
+    psnr_value = compute_psnr_from_mse(mse_value, max_val=1.0)
 
     abs_diff = np.abs(img1 - img2)
     heatmap_gray = abs_diff.mean(axis=2)
     heatmap_gray[mask_exclude] = 0.0
+    heatmap_red = cv2.applyColorMap((heatmap_gray * 255).astype(np.uint8), cv2.COLORMAP_HOT)
 
-    return mse_value, heatmap_gray
+    return mse_value, psnr_value, heatmap_red
