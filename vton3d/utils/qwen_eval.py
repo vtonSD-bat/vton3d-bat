@@ -7,6 +7,14 @@ from PIL import Image
 import torch
 import cv2
 import numpy as np
+
+from pathlib import Path
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SAPIENS_REPO = REPO_ROOT / "Sapiens-Pytorch-Inference"
+sys.path.insert(0, str(SAPIENS_REPO))
+
 from sapiens_inference.segmentation import classes
 
 

@@ -8,6 +8,13 @@ from diffusers import QwenImageEditPlusPipeline
 import wandb
 
 from vton3d.utils.qwen_eval import qwen_eval_masked
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SAPIENS_REPO = REPO_ROOT / "Sapiens-Pytorch-Inference"
+sys.path.insert(0, str(SAPIENS_REPO))
+
+
 from sapiens_inference.segmentation import SapiensSegmentation, SapiensSegmentationType
 import numpy as np
 
