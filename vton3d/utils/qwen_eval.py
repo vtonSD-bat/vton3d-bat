@@ -82,6 +82,9 @@ def qwen_eval_masked(img1_path, img2_path, flag, estimator):
     abs_diff = np.abs(img1 - img2)
     heatmap_gray = abs_diff.mean(axis=2)
     heatmap_gray[mask_exclude] = 0.0
-    heatmap_red = cv2.applyColorMap((heatmap_gray * 255).astype(np.uint8), cv2.COLORMAP_HOT)
+    norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
+
+    heatmap_red = np.zeros((*norm.shape, 3), dtype=np.uint8)
+    heatmap_red[..., 2] = (norm * 255).astype(np.uint8)
 
     return mse_value, psnr_value, heatmap_red
