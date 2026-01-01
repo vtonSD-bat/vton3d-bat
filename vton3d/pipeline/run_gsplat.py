@@ -60,7 +60,7 @@ def run_step_gsplat(cfg: dict) -> None:
 
     cmd = [
         sys.executable,
-        "examples/simple_trainer.py",
+        "examples/gsplat_trainer_pipe.py",
         "default",
         "--data_dir", str(data_dir),
         "--data_factor", str(data_factor),
