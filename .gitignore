@@ -11,3 +11,4 @@ __pycache__/
 *.cpython-312.pyc
 *.cpython-312.
 Sapiens-Pytorch-Inference/models/
+models/
