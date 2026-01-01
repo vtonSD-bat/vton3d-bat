@@ -7,6 +7,7 @@ from PIL import Image
 import torch
 import cv2
 import numpy as np
+import matplotlib.cm as cm
 
 from pathlib import Path
 import sys
@@ -82,9 +83,10 @@ def qwen_eval_masked(img1_path, img2_path, flag, estimator):
     abs_diff = np.abs(img1 - img2)
     heatmap_gray = abs_diff.mean(axis=2)
     heatmap_gray[mask_exclude] = 0.0
-    norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
 
-    heatmap_red = np.zeros((*norm.shape, 3), dtype=np.uint8)
-    heatmap_red[..., 2] = (norm * 255).astype(np.uint8)
+    norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
+    colormap = cm.get_cmap("Reds")
+    heatmap_red = (colormap(norm)[..., :3] * 255).astype(np.uint8)
+    heatmap_red = cv2.cvtColor(heatmap_red, cv2.COLOR_RGB2BGR)
 
     return mse_value, psnr_value, heatmap_red
