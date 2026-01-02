@@ -14,15 +14,12 @@ from vton3d.utils.qwen_eval import (
 )
 
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAPIENS_REPO = REPO_ROOT / "Sapiens-Pytorch-Inference"
 sys.path.insert(0, str(SAPIENS_REPO))
 
-
 from sapiens_inference.segmentation import SapiensSegmentation, SapiensSegmentationType
 import numpy as np
-
 
 
 def parse_args() -> argparse.Namespace:
@@ -284,7 +281,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             f"qwen/masked_input_clothing_{eval_flag}": wandb.Image(
                 masked_rgb, caption=f"{img_path.stem}_masked_input_{eval_flag}"
             ),
-            f"qwen/arcface_sim_input_vs_output": face_sim,
+            f"qwen/face_sim_input_vs_output": face_sim,
 
         })
 
