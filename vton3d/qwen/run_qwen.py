@@ -260,7 +260,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
 
         fc_sim, masked_rgb = qwen_fashionclip_similarity_masked_clothing(
-            person_img_path=str(img_path),
+            person_img_path=str(out_path),
             clothing_ref_path=str(clothing_path),
             flag=eval_flag,
             estimator=estimator,
