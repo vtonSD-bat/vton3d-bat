@@ -119,6 +119,21 @@ def infer_eval_flag_from_clothing_path(clothing_path: Path) -> str:
         f"Could not infer eval_flag from clothing path (missing 'upper'/'lower' folder): {clothing_path}"
     )
 
+def infer_length_flag_from_clothing_path(clothing_path: Path) -> str:
+    parts = [p.lower() for p in clothing_path.parts]
+
+    if "long" in parts and "short" in parts:
+        raise ValueError(f"Ambiguous clothing path contains both 'long' and 'short': {clothing_path}")
+
+    if "long" in parts:
+        return "long"
+    if "short" in parts:
+        return "short"
+
+    raise ValueError(
+        f"Could not infer length_flag from clothing path (missing 'long'/'short' folder): {clothing_path}"
+    )
+
 
 def load_pipeline(model_path: str) -> QwenImageEditPlusPipeline:
     """
@@ -201,7 +216,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     )
 
     eval_flag = infer_eval_flag_from_clothing_path(clothing_path)
-    print(f"[qwen] inferred eval_flag='{eval_flag}' from clothing_image='{clothing_path}'")
+    length_flag = infer_length_flag_from_clothing_path(clothing_path)
+    print(f"[qwen] inferred eval_flag='{eval_flag}', length_flag='{length_flag}' from clothing_image='{clothing_path}'")
 
     for img_path in image_files:
         person_image = Image.open(img_path).convert("RGB")
@@ -228,6 +244,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             img1_path=str(img_path),
             img2_path=str(out_path),
             flag=eval_flag,
+            length_flag=length_flag,
             estimator=estimator,
         )
 
@@ -237,9 +254,9 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
             "qwen/output_image": wandb.Image(output_image, caption=out_path.name),
             "qwen/image_index": img_count,
-            f"qwen/mse_non_clothed_area_{eval_flag}_clothing": mse_value,
-            f"qwen/psnr_non_clothed_area_{eval_flag}_clothing": psnr_value,
-            f"qwen/heatmap_non_clothed_area_{eval_flag}_clothing": wandb.Image(heatmap, caption=f"{img_path.stem}_heatmap_{eval_flag}"),
+            f"qwen/mse_non_clothed_area_{eval_flag}_{length_flag}": mse_value,
+            f"qwen/psnr_non_clothed_area_{eval_flag}_{length_flag}": psnr_value,
+            f"qwen/heatmap_non_clothed_area_{eval_flag}_{length_flag}": wandb.Image(heatmap, caption=f"{img_path.stem}_heatmap_{eval_flag}_{length_flag}"),
         })
 
         clear_gpu_cache()

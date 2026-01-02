@@ -36,6 +36,13 @@ def get_clothing_class_idx(flag: str) -> int:
 
     return classes.index(target)
 
+
+def _idx(name: str):
+    try:
+        return classes.index(name)
+    except ValueError:
+        return None
+
 def compute_psnr_from_mse(mse_value: float, max_val: float = 1.0) -> float:
     """
     Computes PSNR from a given MSE value and maximum pixel value.
@@ -45,7 +52,7 @@ def compute_psnr_from_mse(mse_value: float, max_val: float = 1.0) -> float:
     return 10.0 * np.log10((max_val ** 2) / mse_value)
 
 
-def qwen_eval_masked(img1_path, img2_path, flag, estimator):
+def qwen_eval_masked(img1_path, img2_path, flag, length_flag, estimator):
     """
     Loads two images, segments the first image, excludes a clothing class
     (upper or lower), computes MSE only on unmasked pixels, and returns
@@ -65,10 +72,49 @@ def qwen_eval_masked(img1_path, img2_path, flag, estimator):
     seg_map = estimator(img1_bgr).astype(np.int32)
 
     flag = flag.lower()
-    class_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
-    class_idx = classes.index(class_name)
+    length_flag = length_flag.lower()
 
-    mask_exclude = (seg_map == class_idx)
+    if flag not in ("upper", "lower"):
+        raise ValueError(f"Invalid flag '{flag}', expected 'upper' or 'lower'.")
+    if length_flag not in ("short", "long"):
+        raise ValueError(f"Invalid length_flag '{length_flag}', expected 'short' or 'long'.")
+
+    clothing_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
+    clothing_idx = _idx(clothing_name)
+    if clothing_idx is None:
+        raise ValueError(f"Class '{clothing_name}' not found in classes list.")
+
+    mask_exclude = (seg_map == clothing_idx)
+
+    if length_flag == "long":
+        if flag == "upper":
+            arm_names = ["Left Upper Arm", "Right Upper Arm", "Left Lower Arm", "Right Lower Arm"]
+            arm_indices = [i for i in (_idx(n) for n in arm_names) if i is not None]
+
+            has_arm = False
+            for ai in arm_indices:
+                if np.any(seg_map == ai):
+                    has_arm = True
+                    break
+
+            if has_arm:
+                for ai in arm_indices:
+                    mask_exclude |= (seg_map == ai)
+
+        else:  # lower
+            leg_names = ["Left Upper Leg", "Right Upper Leg", "Left Lower Leg", "Right Lower Leg"]
+            leg_indices = [i for i in (_idx(n) for n in leg_names) if i is not None]
+
+            has_leg = False
+            for li in leg_indices:
+                if np.any(seg_map == li):
+                    has_leg = True
+                    break
+
+            if has_leg:
+                for li in leg_indices:
+                    mask_exclude |= (seg_map == li)
+
     mask_include = ~mask_exclude
 
     img1 = img1_bgr.astype(np.float32) / 255.0
