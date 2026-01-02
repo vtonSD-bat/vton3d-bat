@@ -7,7 +7,7 @@ import torch
 from diffusers import QwenImageEditPlusPipeline
 import wandb
 
-from vton3d.utils.qwen_eval import qwen_eval_masked
+from vton3d.utils.qwen_eval import qwen_eval_masked, qwen_fashionclip_similarity_masked_clothing
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -248,6 +248,15 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             estimator=estimator,
         )
 
+        fc_sim, masked_rgb = qwen_fashionclip_similarity_masked_clothing(
+            person_img_path=str(img_path),
+            clothing_ref_path=str(clothing_path),
+            flag=eval_flag,
+            estimator=estimator,
+            clip_device="gpu",
+            return_masked_rgb=True,
+        )
+
         img_count += 1
 
         wandb.log({
@@ -257,6 +266,10 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             f"qwen/mse_non_clothed_area_{eval_flag}_{length_flag}": mse_value,
             f"qwen/psnr_non_clothed_area_{eval_flag}_{length_flag}": psnr_value,
             f"qwen/heatmap_non_clothed_area_{eval_flag}_{length_flag}": wandb.Image(heatmap, caption=f"{img_path.stem}_heatmap_{eval_flag}_{length_flag}"),
+            f"qwen/fashionclip_sim_input_{eval_flag}_clothing": fc_sim,
+            f"qwen/masked_input_clothing_{eval_flag}": wandb.Image(
+                masked_rgb, caption=f"{img_path.stem}_masked_input_{eval_flag}"
+            ),
         })
 
         clear_gpu_cache()

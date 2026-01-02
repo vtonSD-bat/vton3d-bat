@@ -18,6 +18,8 @@ sys.path.insert(0, str(SAPIENS_REPO))
 
 from sapiens_inference.segmentation import classes
 
+from transformers import CLIPProcessor, CLIPModel
+
 
 def get_clothing_class_idx(flag: str) -> int:
     """
@@ -136,3 +138,88 @@ def qwen_eval_masked(img1_path, img2_path, flag, length_flag, estimator):
     heatmap_red = cv2.cvtColor(heatmap_red, cv2.COLOR_RGB2BGR)
 
     return mse_value, psnr_value, heatmap_red
+
+#fashionclip
+_FC_CACHE = {
+    "device": None,
+    "processor": None,
+    "model": None,
+    "ref_path": None,
+    "ref_emb": None,
+}
+
+def qwen_fashionclip_similarity_masked_clothing(
+    person_img_path: str,
+    clothing_ref_path: str,
+    flag: str,
+    estimator,
+    clip_device: str = "cpu",
+    return_masked_rgb: bool = False,
+):
+    """
+    Segments ONLY the clothing class (Upper/Lower) from the PERSON image,
+    makes everything else white, embeds with Fashion-CLIP, embeds the clothing
+    reference image, returns cosine similarity.
+
+    Returns:
+      sim: float
+      masked_rgb (optional): np.ndarray HxWx3 uint8 (RGB) if return_masked_rgb=True else None
+    """
+    flag = flag.lower()
+    if flag not in ("upper", "lower"):
+        raise ValueError(f"Invalid flag '{flag}', expected 'upper' or 'lower'.")
+
+    clothing_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
+    if clothing_name not in classes:
+        raise ValueError(f"Class '{clothing_name}' not found in classes list.")
+    clothing_idx = classes.index(clothing_name)
+
+    img_bgr = cv2.imread(person_img_path)
+    if img_bgr is None:
+        raise FileNotFoundError(f"Could not load image: {person_img_path}")
+
+    seg_map = estimator(img_bgr).astype(np.int32)
+    mask = (seg_map == clothing_idx)
+
+    white_bgr = img_bgr.copy()
+    white_bgr[~mask] = (255, 255, 255)
+
+    white_rgb = white_bgr[..., ::-1]
+    person_pil = Image.fromarray(white_rgb)
+
+    ref_pil = Image.open(clothing_ref_path).convert("RGB")
+
+    dev = torch.device(clip_device)
+
+    if _FC_CACHE["processor"] is None or _FC_CACHE["model"] is None or _FC_CACHE["device"] != clip_device:
+        clip_id = "patrickjohncyh/fashion-clip"
+        _FC_CACHE["processor"] = CLIPProcessor.from_pretrained(clip_id, use_fast=True)
+        _FC_CACHE["model"] = CLIPModel.from_pretrained(clip_id).to(dev)
+        _FC_CACHE["model"].eval()
+        _FC_CACHE["device"] = clip_device
+        _FC_CACHE["ref_path"] = None
+        _FC_CACHE["ref_emb"] = None
+
+    processor = _FC_CACHE["processor"]
+    model = _FC_CACHE["model"]
+
+    def embed(pil_img: Image.Image) -> torch.Tensor:
+        inputs = processor(images=pil_img, return_tensors="pt")
+        inputs = {k: v.to(dev) for k, v in inputs.items()}
+        with torch.inference_mode():
+            feats = model.get_image_features(pixel_values=inputs["pixel_values"])
+        feats = feats.float()
+        feats = feats / (feats.norm(dim=-1, keepdim=True) + 1e-12)
+        return feats.squeeze(0)
+
+    if _FC_CACHE["ref_path"] != clothing_ref_path or _FC_CACHE["ref_emb"] is None:
+        _FC_CACHE["ref_emb"] = embed(ref_pil)
+        _FC_CACHE["ref_path"] = clothing_ref_path
+
+    emb_person = embed(person_pil)
+    emb_ref = _FC_CACHE["ref_emb"]
+
+    sim = float(torch.dot(emb_person, emb_ref).detach().cpu().item())
+
+    masked_rgb = white_rgb if return_masked_rgb else None
+    return sim, masked_rgb
