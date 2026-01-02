@@ -95,6 +95,31 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def infer_eval_flag_from_clothing_path(clothing_path: Path) -> str:
+    """
+    Infer eval_flag ("upper" or "lower") from clothing image path.
+    Expects the path to contain a folder named 'upper' or 'lower'.
+    """
+    parts = [p.lower() for p in clothing_path.parts]
+
+    if "lower" in parts and "upper" in parts:
+        # sehr selten, aber dann ist der Pfad ambig
+        raise ValueError(
+            f"Ambiguous clothing path contains both 'upper' and 'lower': {clothing_path}"
+        )
+
+    if "lower" in parts:
+        return "lower"
+    if "upper" in parts:
+        return "upper"
+
+    # Optional: falls du lieber defaulten willst statt Fehler:
+    # return "upper"
+    raise ValueError(
+        f"Could not infer eval_flag from clothing path (missing 'upper'/'lower' folder): {clothing_path}"
+    )
+
+
 def load_pipeline(model_path: str) -> QwenImageEditPlusPipeline:
     """
     Load the Qwen Image Edit pipeline with CPU offload enabled.
@@ -175,7 +200,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         dtype=torch.float16,
     )
 
-    eval_flag = qwen_cfg.get("eval_flag", "upper")
+    eval_flag = infer_eval_flag_from_clothing_path(clothing_path)
+    print(f"[qwen] inferred eval_flag='{eval_flag}' from clothing_image='{clothing_path}'")
 
     for img_path in image_files:
         person_image = Image.open(img_path).convert("RGB")
@@ -235,7 +261,6 @@ def main():
         "num_inference_steps": args.num_inference_steps,
         "seed": args.seed,
         "extensions": args.extensions,
-        "eval_flag": args.eval_flag if hasattr(args, "eval_flag") else "upper",
     }
     run_qwen_from_config_dict(qwen_cfg)
 
