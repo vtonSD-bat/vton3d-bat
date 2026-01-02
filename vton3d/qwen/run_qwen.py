@@ -1,14 +1,19 @@
 import argparse
 from pathlib import Path
 import gc
-
+import sys
 from PIL import Image
 import torch
 from diffusers import QwenImageEditPlusPipeline
 import wandb
 
-from vton3d.utils.qwen_eval import qwen_eval_masked, qwen_fashionclip_similarity_masked_clothing
-import sys
+from vton3d.utils.qwen_eval import (
+    qwen_eval_masked,
+    qwen_fashionclip_similarity_masked_clothing,
+    qwen_arcface_similarity_input_vs_output,
+)
+
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAPIENS_REPO = REPO_ROOT / "Sapiens-Pytorch-Inference"
@@ -248,12 +253,21 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             estimator=estimator,
         )
 
+        face_sim, face_in_rgb, face_out_rgb = qwen_arcface_similarity_input_vs_output(
+            img1_path=str(img_path),
+            img2_path=str(out_path),
+            device="cuda",
+            det_size=(640, 640),
+            return_faces_rgb=True,
+        )
+
+
         fc_sim, masked_rgb = qwen_fashionclip_similarity_masked_clothing(
             person_img_path=str(img_path),
             clothing_ref_path=str(clothing_path),
             flag=eval_flag,
             estimator=estimator,
-            clip_device="gpu",
+            clip_device="cuda",
             return_masked_rgb=True,
         )
 
@@ -270,6 +284,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             f"qwen/masked_input_clothing_{eval_flag}": wandb.Image(
                 masked_rgb, caption=f"{img_path.stem}_masked_input_{eval_flag}"
             ),
+            f"qwen/arcface_sim_input_vs_output": face_sim,
+
         })
 
         clear_gpu_cache()
