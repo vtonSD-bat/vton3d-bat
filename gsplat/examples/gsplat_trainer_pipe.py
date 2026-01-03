@@ -1191,7 +1191,7 @@ class Runner:
 
 def main(local_rank: int, world_rank, world_size: int, cfg: Config):
     if world_rank == 0:
-        run_id = open("../logs/wandb_current_pipe_id.txt").read().strip()
+        run_id = os.environ.get("WANDB_RUN_ID"),
         wandb.init(
             project="vton_pipeline",
             id=run_id,

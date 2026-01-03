@@ -211,14 +211,10 @@ def run_pipeline(config_path: str | Path):
     wandb.init(
         project="vton_pipeline",
         name=cfg.get("wandb", {}).get("run_name", None),
-        config=cfg
+        config=cfg,
+        id=os.environ.get("WANDB_RUN_ID"),
     )
 
-    run_id_path = Path("logs") / "wandb_current_pipe_id.txt"
-    with run_id_path.open("w") as f:
-        f.write(wandb.run.id)
-
-    print(f"[Pipeline] Saved WandB run ID to: {run_id_path}")
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"]).expanduser().resolve()
     real_images_dir = base_scene_dir / "real" / "images"
