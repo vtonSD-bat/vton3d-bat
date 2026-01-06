@@ -21,6 +21,7 @@ import torch
 import os
 import subprocess
 import shutil
+import sys
 import wandb
 
 
@@ -193,6 +194,41 @@ def run_step_qwen_clothing(cfg: dict):
     print("=== [Step Qwen] Done ===\n")
 
 
+import sys
+from pathlib import Path
+import subprocess
+
+def run_step_vggt_eval(cfg: dict):
+    """
+    Step 1.5: Run vggt_.py with fixed params:
+      --root <scene_dir>/real
+    Uses script defaults for:
+      out=<root>/vggt_eval
+      max_images=0 (all)
+      every=1 (all)
+    And does NOT pass --auto_resize (so no resizing).
+    """
+    print("=== [Step 1.5] VGGT Eval (fixed args) ===")
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"]).expanduser().resolve()
+    real_root = base_scene_dir / "real"
+
+    script_path = "vton3d/vggt/vggt_.py"
+
+    if not script_path.exists():
+        raise FileNotFoundError(
+            f"Could not find vggt_.py at: {script_path}\n"
+            f"Adjust script_path in run_step_vggt_eval_fixed() to your actual location."
+        )
+
+    cmd = [sys.executable, str(script_path), "--root", str(real_root)]
+
+    print(f"  -> Running: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+
+    print("=== [Step VGGT Eval] Done ===\n")
+
+
 def run_pipeline(config_path: str | Path):
     """
     Main pipeline function.
@@ -228,6 +264,8 @@ def run_pipeline(config_path: str | Path):
     )
 
     run_step_vggt_colmap(cfg)
+
+    run_step_vggt_eval(cfg)
 
     run_step_qwen_clothing(cfg)
 
