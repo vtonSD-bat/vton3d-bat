@@ -20,6 +20,8 @@ mkdir -p logs
 
 CONFIG_PATH=${1:-configs/vton_pipeline.yaml}
 
+export WANDB_RUN_ID="slurm-${SLURM_JOB_ID}"
+
 python -m vton3d.pipeline.run_pipeline --config "$CONFIG_PATH"
 
 deactivate

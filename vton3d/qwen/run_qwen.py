@@ -1,11 +1,25 @@
 import argparse
 from pathlib import Path
 import gc
-
+import sys
 from PIL import Image
 import torch
 from diffusers import QwenImageEditPlusPipeline
 import wandb
+
+from vton3d.utils.qwen_eval import (
+    qwen_eval_masked,
+    qwen_fashionclip_similarity_masked_clothing,
+    qwen_arcface_similarity_input_vs_output,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SAPIENS_REPO = REPO_ROOT / "Sapiens-Pytorch-Inference"
+sys.path.insert(0, str(SAPIENS_REPO))
+
+from sapiens_inference.segmentation import SapiensSegmentation, SapiensSegmentationType
+import numpy as np
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,6 +97,46 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def infer_eval_flag_from_clothing_path(clothing_path: Path) -> str:
+    """
+    Infer eval_flag ("upper" or "lower") from clothing image path.
+    Expects the path to contain a folder named 'upper' or 'lower'.
+    """
+    parts = [p.lower() for p in clothing_path.parts]
+
+    if "lower" in parts and "upper" in parts:
+        # sehr selten, aber dann ist der Pfad ambig
+        raise ValueError(
+            f"Ambiguous clothing path contains both 'upper' and 'lower': {clothing_path}"
+        )
+
+    if "lower" in parts:
+        return "lower"
+    if "upper" in parts:
+        return "upper"
+
+    # Optional: falls du lieber defaulten willst statt Fehler:
+    # return "upper"
+    raise ValueError(
+        f"Could not infer eval_flag from clothing path (missing 'upper'/'lower' folder): {clothing_path}"
+    )
+
+def infer_length_flag_from_clothing_path(clothing_path: Path) -> str:
+    parts = [p.lower() for p in clothing_path.parts]
+
+    if "long" in parts and "short" in parts:
+        raise ValueError(f"Ambiguous clothing path contains both 'long' and 'short': {clothing_path}")
+
+    if "long" in parts:
+        return "long"
+    if "short" in parts:
+        return "short"
+
+    raise ValueError(
+        f"Could not infer length_flag from clothing path (missing 'long'/'short' folder): {clothing_path}"
+    )
+
+
 def load_pipeline(model_path: str) -> QwenImageEditPlusPipeline:
     """
     Load the Qwen Image Edit pipeline with CPU offload enabled.
@@ -156,6 +210,17 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     base_generator = torch.Generator(device="cpu").manual_seed(seed)
     img_count = 0
     wandb.log({"qwen/clothing_image": wandb.Image(clothing_image, caption=clothing_path.name)})
+
+    estimator = SapiensSegmentation(
+        SapiensSegmentationType.SEGMENTATION_1B,
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        dtype=torch.float16,
+    )
+
+    eval_flag = infer_eval_flag_from_clothing_path(clothing_path)
+    length_flag = infer_length_flag_from_clothing_path(clothing_path)
+    print(f"[qwen] inferred eval_flag='{eval_flag}', length_flag='{length_flag}' from clothing_image='{clothing_path}'")
+
     for img_path in image_files:
         person_image = Image.open(img_path).convert("RGB")
         generator = torch.Generator(device="cpu").manual_seed(seed)
@@ -166,6 +231,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             "true_cfg_scale": true_cfg_scale,
             "negative_prompt": negative_prompt,
             "num_inference_steps": num_inference_steps,
+            "width": 704,
+            "height": 1248,
         }
 
         with torch.inference_mode():
@@ -175,12 +242,47 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         out_path = output_dir / f"{img_path.stem}.png"
         output_image.save(out_path)
 
+        mse_value, psnr_value, heatmap = qwen_eval_masked(
+            img1_path=str(img_path),
+            img2_path=str(out_path),
+            flag=eval_flag,
+            length_flag=length_flag,
+            estimator=estimator,
+        )
+
+        face_sim, face_in_rgb, face_out_rgb = qwen_arcface_similarity_input_vs_output(
+            img1_path=str(img_path),
+            img2_path=str(out_path),
+            device="cuda",
+            det_size=(640, 640),
+            return_faces_rgb=True,
+        )
+
+
+        fc_sim, masked_rgb = qwen_fashionclip_similarity_masked_clothing(
+            person_img_path=str(out_path),
+            clothing_ref_path=str(clothing_path),
+            flag=eval_flag,
+            estimator=estimator,
+            clip_device="cuda",
+            return_masked_rgb=True,
+        )
+
         img_count += 1
 
         wandb.log({
             "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
             "qwen/output_image": wandb.Image(output_image, caption=out_path.name),
             "qwen/image_index": img_count,
+            f"qwen/mse_non_clothed_area_{eval_flag}_{length_flag}": mse_value,
+            f"qwen/psnr_non_clothed_area_{eval_flag}_{length_flag}": psnr_value,
+            f"qwen/heatmap_non_clothed_area_{eval_flag}_{length_flag}": wandb.Image(heatmap, caption=f"{img_path.stem}_heatmap_{eval_flag}_{length_flag}"),
+            f"qwen/fashionclip_sim_input_{eval_flag}_clothing": fc_sim,
+            f"qwen/masked_input_clothing_{eval_flag}": wandb.Image(
+                masked_rgb, caption=f"{img_path.stem}_masked_input_{eval_flag}"
+            ),
+            f"qwen/face_sim_input_vs_output": face_sim,
+
         })
 
         clear_gpu_cache()

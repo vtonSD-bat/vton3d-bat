@@ -15,13 +15,15 @@ import tqdm
 import tyro
 import viser
 import yaml
+import wandb
+
 from datasets.colmap import Dataset, Parser
 from datasets.traj import (
     generate_ellipse_path_z,
     generate_interpolated_path,
     generate_spiral_path,
 )
-from fused_ssim import fused_ssim
+#from fused_ssim import fused_ssim
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
@@ -69,7 +71,7 @@ class Config:
     camera_model: Literal["pinhole", "ortho", "fisheye"] = "pinhole"
 
     # Port for the viewer server
-    port: int = 8080
+    port: int = 8580
 
     # Batch size for training. Learning rates are scaled automatically
     batch_size: int = 1
@@ -682,10 +684,16 @@ class Runner:
 
             # loss
             l1loss = F.l1_loss(colors, pixels)
-            ssimloss = 1.0 - fused_ssim(
-                colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2), padding="valid"
-            )
+
+            # Für SSIM: torchmetrics verwenden statt fused_ssim
+            colors_p = colors.permute(0, 3, 1, 2)  # [B, 3, H, W]
+            pixels_p = pixels.permute(0, 3, 1, 2)  # [B, 3, H, W]
+
+            ssim_val = self.ssim(colors_p, pixels_p)   # ~[0,1], 1 = perfekt
+            ssimloss = 1.0 - ssim_val
+
             loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
+
             if cfg.depth_loss:
                 # query depths from depth map
                 points = torch.stack(
@@ -751,6 +759,16 @@ class Runner:
                     canvas = canvas.reshape(-1, *canvas.shape[2:])
                     self.writer.add_image("train/render", canvas, step)
                 self.writer.flush()
+
+                log_dict = {
+                    "gsplat_train/loss": float(loss.item()),
+                    "gsplat_train/l1loss": float(l1loss.item()),
+                    "gsplat_train/ssimloss": float(ssimloss.item()),
+                    "gsplat_train/num_GS": len(self.splats["means"]),
+                    "gsplat_train/mem_gb": float(mem),
+                }
+
+                wandb.log(log_dict, step=step)
 
             # save checkpoint before updating the model
             if step in [i - 1 for i in cfg.save_steps] or step == max_steps - 1:
@@ -884,7 +902,8 @@ class Runner:
             # eval the full set
             if step in [i - 1 for i in cfg.eval_steps]:
                 self.eval(step)
-                self.render_traj(step)
+                if step == cfg.eval_steps[-1] - 1:
+                    self.render_traj(step)
 
             # run compression
             if cfg.compression is not None and step in [i - 1 for i in cfg.eval_steps]:
@@ -951,6 +970,11 @@ class Runner:
                     canvas,
                 )
 
+                wandb.log(
+                    {f"gsplat_{stage}/image_{i}": wandb.Image(canvas, caption=f"gsplat_{stage}_step{step}_{i}")},
+                    step=step,
+                )
+
                 pixels_p = pixels.permute(0, 3, 1, 2)  # [1, 3, H, W]
                 colors_p = colors.permute(0, 3, 1, 2)  # [1, 3, H, W]
                 metrics["psnr"].append(self.psnr(colors_p, pixels_p))
@@ -993,6 +1017,11 @@ class Runner:
             for k, v in stats.items():
                 self.writer.add_scalar(f"{stage}/{k}", v, step)
             self.writer.flush()
+
+            wandb.log(
+                {f"gsplat_{stage}/{k}": float(v) for k, v in stats.items()},
+                step=step,
+            )
 
     @torch.no_grad()
     def render_traj(self, step: int):
@@ -1067,6 +1096,7 @@ class Runner:
             writer.append_data(canvas)
         writer.close()
         print(f"Video saved to {video_dir}/traj_{step}.mp4")
+
 
     @torch.no_grad()
     def run_compression(self, step: int):
@@ -1160,6 +1190,15 @@ class Runner:
 
 
 def main(local_rank: int, world_rank, world_size: int, cfg: Config):
+    if world_rank == 0:
+        run_id = os.environ.get("WANDB_RUN_ID")
+        wandb.init(
+            project="vton_pipeline",
+            id=run_id,
+            resume="allow" if run_id is not None else None,
+            config=vars(cfg),
+        )
+
     if world_size > 1 and not cfg.disable_viewer:
         cfg.disable_viewer = True
         if world_rank == 0:
@@ -1187,6 +1226,8 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
         runner.viewer.complete()
         print("Viewer running... Ctrl+C to exit.")
         time.sleep(1000000)
+    if world_rank == 0:
+        wandb.finish()
 
 
 if __name__ == "__main__":
