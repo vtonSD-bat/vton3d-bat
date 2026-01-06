@@ -2,13 +2,7 @@ import argparse
 from pathlib import Path
 import numpy as np
 import cv2
-
-try:
-    import pycolmap
-except ImportError as e:
-    raise SystemExit(
-        "pycolmap fehlt. Installiere z.B.: pip install pycolmap opencv-python numpy"
-    ) from e
+import pycolmap
 
 
 def _normalize_camera_model(model):
@@ -38,8 +32,8 @@ def get_pinhole_params(camera):
     Returns fx, fy, cx, cy, model_name for common COLMAP camera models.
 
     Note:
-      - We ignore distortion parameters for the sparse "render" validation.
-      - But we must still parse fx/fy/cx/cy correctly.
+      - ignores distortion parameters for the sparse "render" validation
+      - But must still parse fx/fy/cx/cy correctly.
     """
     # Different pycolmap versions expose different fields
     model = getattr(camera, "model_name", None)
@@ -195,6 +189,38 @@ def get_cam_from_world_matrix(im):
     return np.array(T, dtype=np.float64)  # expected (3,4)
 
 
+def make_diff_heatmap(orig_rgb, rend_rgb, mask):
+    """
+    Returns a BGR heatmap image visualizing per-pixel RGB error magnitude (no overlay).
+    Background (mask==False) is black.
+
+    Steps:
+      - abs RGB diff
+      - scalar error = mean over RGB
+      - robust normalize (percentiles on masked pixels)
+      - apply colormap
+    """
+    # abs channel-wise difference
+    d = cv2.absdiff(orig_rgb, rend_rgb).astype(np.float32)  # (H,W,3)
+
+    # scalar error (0..255)
+    err = d.mean(axis=2)  # (H,W)
+    err[~mask] = 0.0
+
+    if mask.any():
+        lo, hi = np.percentile(err[mask], [1, 99])
+        hi = max(float(hi), float(lo) + 1e-6)
+        err_n = np.clip((err - lo) / (hi - lo), 0.0, 1.0)
+    else:
+        err_n = np.zeros_like(err, dtype=np.float32)
+
+    err_u8 = (err_n * 255.0).astype(np.uint8)
+
+    heat = cv2.applyColorMap(err_u8, cv2.COLORMAP_BONE)
+    heat[~mask] = (0, 0, 0)
+    return heat
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True, help="Path to data/<scene>/real")
@@ -278,13 +304,13 @@ def main():
         overlay = orig.copy()
         overlay[mask] = (0.7 * orig[mask] + 0.3 * rendered[mask]).astype(np.uint8)
 
-        diff = np.zeros_like(orig)
-        diff[mask] = cv2.absdiff(orig[mask], rendered[mask])
+        # Heatmap diff (no overlay)
+        diff_heat_bgr = make_diff_heatmap(orig, rendered, mask)
 
         stem = Path(name).stem
         cv2.imwrite(str(out_dir / f"{stem}_render.png"), cv2.cvtColor(rendered, cv2.COLOR_RGB2BGR))
         cv2.imwrite(str(out_dir / f"{stem}_overlay.png"), cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
-        cv2.imwrite(str(out_dir / f"{stem}_diff.png"), cv2.cvtColor(diff, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(str(out_dir / f"{stem}_diff_heat.png"), diff_heat_bgr)
 
         rows.append(
             {
