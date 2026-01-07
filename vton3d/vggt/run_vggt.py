@@ -391,7 +391,7 @@ def vggt2colmap(args):
     # Save point cloud for fast visualization
     trimesh.PointCloud(points_3d, colors=points_rgb).export(os.path.join(args.scene_dir, "sparse/points.ply"))
 
-    print("\n=== [VGGT EVAL] Logging to W&B ===")
+    print("\n=== [VGGT EVAL] ===")
     run_vggt_eval(args.scene_dir, prefix="vggt")
 
     return True
