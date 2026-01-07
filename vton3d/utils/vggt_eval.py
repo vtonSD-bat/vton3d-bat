@@ -143,7 +143,7 @@ def masked_metrics(orig_rgb, rend_rgb, mask):
     rmse = float(np.sqrt(mse))
     psnr = float(20.0 * np.log10(1.0 / (rmse + 1e-12)))
     coverage = float(mask.mean())
-    return dict(coverage=coverage, l1=l1, rmse=rmse, psnr=psnr)
+    return dict(coverage=coverage, l1=l1, rmse=rmse, psnr=psnr, mse=mse)
 
 
 def find_model_dir(sparse_root: Path) -> Path:
