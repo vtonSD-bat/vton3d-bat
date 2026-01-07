@@ -23,13 +23,16 @@ import subprocess
 import shutil
 import sys
 import wandb
+from argparse import Namespace
+from PIL import Image
 
 
 
 from vton3d.vggt.run_vggt import vggt2colmap
 from vton3d.qwen.run_qwen import run_qwen_from_config_dict
-from argparse import Namespace
-from PIL import Image
+from vton3d.utils.background_segmentation import background_segmentation
+
+
 
 
 #helper
@@ -229,6 +232,8 @@ def run_pipeline(config_path: str | Path):
         target_height=1248,
         target_width=704,
     )
+
+    background_segmentation(real_images_dir)
 
     run_step_vggt_colmap(cfg)
 
