@@ -11,6 +11,7 @@ import os
 import copy
 import torch
 import torch.nn.functional as F
+import wandb
 
 # Configure CUDA settings
 torch.backends.cudnn.enabled = True
@@ -30,6 +31,18 @@ from vggt.utils.geometry import unproject_depth_map_to_point_map
 from vggt.utils.helper import create_pixel_coordinate_grid, randomly_limit_trues
 from vggt.dependency.track_predict import predict_tracks
 from vggt.dependency.np_to_pycolmap import batch_np_matrix_to_pycolmap, batch_np_matrix_to_pycolmap_wo_track
+import numpy as np
+import cv2
+
+
+from vton3d.utils.vggt_eval import (
+    find_model_dir,
+    get_cam_from_world_matrix,
+    project_world_to_image_Rt,
+    render_zbuffer,
+    masked_metrics,
+    make_diff_heatmap,
+)
 
 
 # TODO: add support for masks
@@ -92,8 +105,117 @@ def run_VGGT(model, images, dtype, resolution=518):
     depth_conf = depth_conf.squeeze(0).cpu().numpy()
     return extrinsic, intrinsic, depth_map, depth_conf
 
+def run_vggt_eval(real_root: str | Path, prefix: str = "vggt"):
+    """
+    Eval for VGGT reconstruction:
+    - Input: real_root = .../<scene>/real
+    """
 
-def demo_fn(args):
+    real_root = Path(real_root).expanduser().resolve()
+    images_dir = real_root / "images"
+    sparse_root = real_root / "sparse"
+
+    if wandb.run is None:
+        print("[VGGT EVAL] wandb.run is None -> skipping W&B logging.")
+        return False
+
+    model_dir = find_model_dir(sparse_root)
+    print(f"[VGGT EVAL] Using COLMAP model dir: {model_dir}")
+
+    rec = pycolmap.Reconstruction(str(model_dir))
+
+    pids = list(rec.points3D.keys())
+    if len(pids) == 0:
+        print("[VGGT EVAL] No points3D found -> skipping eval.")
+        return False
+
+    Xw = np.stack([rec.points3D[pid].xyz for pid in pids], axis=0)
+    rgb = np.stack([rec.points3D[pid].color for pid in pids], axis=0).astype(np.uint8)
+    print(f"[VGGT EVAL] Loaded {Xw.shape[0]} 3D points")
+
+    #Order = like Qwen in pipeline
+    allowed_ext = {".jpg", ".jpeg", ".png"}
+    ordered_names = [
+        p.name for p in sorted(images_dir.iterdir())
+        if p.is_file() and p.suffix.lower() in allowed_ext
+    ]
+    if not ordered_names:
+        print(f"[VGGT EVAL] No images found in {images_dir} -> skipping eval.")
+        return False
+
+    #Map filename = reconstruction image
+    images_by_name = {im.name: im for im in rec.images.values()}
+
+    image_index = 0
+    for name in ordered_names:
+        im = images_by_name.get(name)
+        if im is None:
+            print(f"[VGGT EVAL][WARN] '{name}' not present in reconstruction -> skip")
+            continue
+
+        img_path = images_dir / name
+        bgr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+        if bgr is None:
+            print(f"[VGGT EVAL][WARN] unreadable: {img_path} -> skip")
+            continue
+
+        orig = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+        cam = rec.cameras[im.camera_id]
+        W, H = int(cam.width), int(cam.height)
+
+        if orig.shape[1] != W or orig.shape[0] != H:
+            print(f"[VGGT EVAL][SIZE] {name}: image={orig.shape[1]}x{orig.shape[0]} vs cam={W}x{H} -> skip")
+            continue
+
+        T = get_cam_from_world_matrix(im)
+        if T is None or T.shape != (3, 4):
+            print(f"[VGGT EVAL][WARN] {name}: invalid pose -> skip")
+            continue
+
+        R = T[:, :3]
+        t = T[:, 3]
+
+        u, v, z, cam_model = project_world_to_image_Rt(Xw, R, t, cam)
+        behind_ratio = float(np.mean(np.isfinite(z) & (z <= 0)))
+
+        rendered, mask = render_zbuffer(H, W, u, v, z, rgb)
+        m = masked_metrics(orig, rendered, mask)
+
+        overlay = orig.copy()
+        overlay[mask] = (0.7 * orig[mask] + 0.3 * rendered[mask]).astype(np.uint8)
+
+        diff_heat_bgr = make_diff_heatmap(orig, rendered, mask)
+        diff_heat_rgb = cv2.cvtColor(diff_heat_bgr, cv2.COLOR_BGR2RGB)
+
+        image_index += 1
+
+        log_dict = {
+            f"{prefix}/render": wandb.Image(rendered, caption=f"{Path(name).stem}_render"),
+            f"{prefix}/overlay": wandb.Image(overlay, caption=f"{Path(name).stem}_overlay"),
+            f"{prefix}/diff_heat": wandb.Image(diff_heat_rgb, caption=f"{Path(name).stem}_diff_heat"),
+            f"{prefix}/coverage": float(m["coverage"]),
+            f"{prefix}/mse": float(m["mse"]),
+            f"{prefix}/psnr": float(m["psnr"]),
+            f"{prefix}/behind_ratio": float(behind_ratio),
+            f"{prefix}/W": int(W),
+            f"{prefix}/H": int(H),
+            f"{prefix}/num_points": int(Xw.shape[0]),
+        }
+
+        wandb.log(log_dict, step=image_index)
+
+
+    if image_index == 0:
+        print("[VGGT EVAL][WARN] No images evaluated (all skipped?)")
+        return False
+
+    return True
+
+
+
+
+def vggt2colmap(args):
     # Print configuration
     print("Arguments:", vars(args))
 
@@ -268,6 +390,9 @@ def demo_fn(args):
 
     # Save point cloud for fast visualization
     trimesh.PointCloud(points_3d, colors=points_rgb).export(os.path.join(args.scene_dir, "sparse/points.ply"))
+
+    print("\n=== [VGGT EVAL] ===")
+    run_vggt_eval(args.scene_dir, prefix="vggt")
 
     return True
 

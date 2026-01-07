@@ -8,7 +8,7 @@ This script is the main entry point for the complete VTON pipeline.
 Current functionality:
 - loads a YAML configuration file
 - automatically appends 'real' to the scene_dir from the config
-- runs vggt_colmap.py (VGGT + COLMAP reconstruction) as the first pipeline step
+- runs run_vggt.py (VGGT + COLMAP reconstruction) as the first pipeline step
 
 """
 
@@ -21,10 +21,12 @@ import torch
 import os
 import subprocess
 import shutil
+import sys
 import wandb
 
 
-from scripts.vggt_colmap import demo_fn
+
+from vton3d.vggt.run_vggt import vggt2colmap
 from vton3d.qwen.run_qwen import run_qwen_from_config_dict
 from argparse import Namespace
 from PIL import Image
@@ -155,7 +157,7 @@ def run_step_vggt_colmap(cfg: dict):
     print(f"  -> Using scene subdirectory: {vggt_args.scene_dir}")
 
     with torch.no_grad():
-        demo_fn(vggt_args)
+        vggt2colmap(vggt_args)
 
     print("=== [Step VGGT] Done ===\n")
 
@@ -191,6 +193,7 @@ def run_step_qwen_clothing(cfg: dict):
 
 
     print("=== [Step Qwen] Done ===\n")
+
 
 
 def run_pipeline(config_path: str | Path):
