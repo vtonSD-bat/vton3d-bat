@@ -28,9 +28,12 @@ Run the following command to create the envs:
 bash scicore_create_envs.sh
 
 
-If you want to use the Pipeline with the full Precision Qwen Image Edit Model, change the model in the configs to: Qwen/Qwen-Image-Edit-2511
-For the full precision model you need at least 50GB GPU memory (a100-80g) and about 65GB CPU Memory.
-For the 4-bit quantized model (ovedrive/Qwen-Image-Edit-2511-4bit) you need at least 20GB GPU memory (a100 which has 40GB) or SLURM FHNW with A4500 GPU.
+If you want to use the Pipeline with the full Precision Qwen Image Edit Model, change the model 
+in the configs to: Qwen/Qwen-Image-Edit-2511
+For the full precision model you need at least 
+50GB GPU memory (a100-80g) and about 65GB CPU Memory.
+For the 4-bit quantized model (ovedrive/Qwen-Image-Edit-2511-4bit) you need 
+at least 20GB GPU memory (a100 which has 40GB) or SLURM FHNW with A4500 GPU.
 
 Then run the pipeline with:
 sbatch scicore_run_pipeline.sh
