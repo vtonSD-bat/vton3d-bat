@@ -16,14 +16,12 @@ export PIP_RETRIES=10
 
 ENV_NAME_VTON=vton
 
-# >>> einzige Änderung: Env nur erstellen, wenn sie nicht existiert
 if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME_VTON"; then
     echo ">>> Conda env '$ENV_NAME_VTON' already exists – skipping creation"
 else
     echo ">>> Creating conda env: $ENV_NAME_VTON"
     conda create -n $ENV_NAME_VTON python=3.11 -y
 fi
-# <<< Ende Änderung
 
 echo ">>> Activating $ENV_NAME_VTON"
 conda activate $ENV_NAME_VTON
@@ -60,7 +58,6 @@ with zipfile.ZipFile(zip_path, "r") as z:
     z.extractall(root)
 PY
 
-  # falls ONNX im falschen Ort gelandet ist, reparieren:
   mkdir -p "$MODEL_DIR"
   shopt -s nullglob
   for f in "$INSIGHTFACE_HOME/models/"*.onnx; do mv "$f" "$MODEL_DIR/"; done
@@ -77,14 +74,12 @@ conda deactivate
 
 ENV_NAME_GSPLAT=gsplat310vton
 
-# >>> einzige Änderung: Env nur erstellen, wenn sie nicht existiert
 if conda env list | awk '{print $1}' | grep -Fxq "$ENV_NAME_GSPLAT"; then
     echo ">>> Conda env '$ENV_NAME_GSPLAT' already exists – skipping creation"
 else
     echo ">>> Creating conda env: $ENV_NAME_GSPLAT"
     conda create -n $ENV_NAME_GSPLAT python=3.10 -y
 fi
-# <<< Ende Änderung
 
 module load Miniconda3/24.7.1-0
 eval "$(conda shell.bash hook)"
@@ -127,7 +122,7 @@ python -m pip install -r gsplat/examples/scicore_requirements.txt
 
 python - <<'PY'
 from torchvision.models import alexnet, AlexNet_Weights
-m = alexnet(weights=AlexNet_Weights.DEFAULT)  # lädt und cached
+m = alexnet(weights=AlexNet_Weights.DEFAULT)
 print("AlexNet weights cached OK")
 PY
 

@@ -1,6 +1,4 @@
 #!/bin/bash
-
-
 #SBATCH --job-name=vton_pipeline     #Name of your job
 #SBATCH --cpus-per-task=8    #Number of cores to reserve
 #SBATCH --mem-per-cpu=10G     #Amount of RAM/core to reserve
