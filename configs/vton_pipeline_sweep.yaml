@@ -1,0 +1,60 @@
+run_name: "vton_flo_16"
+
+wandb:
+  project: "vton_pipeline"
+  entity: null
+  run_name: "${run_name}"
+  tags: ["vton3d", "vggt"]
+  mode: "online"
+
+paths:
+  # Dataset root
+  scene_dir: "data/flo_16"
+
+  # Per-run workspace (important for sweeps/parallel runs!)
+  # is replaced in code with {run_id}
+  work_dir: "outputs/vton_runs/${run_name}/{run_id}"
+
+pipeline:
+  steps: ["vggt", "qwen"] # gsplat in other env
+
+  # preprocess im dataset once and then deactivate
+  preprocess:
+    normalize_to_png: false
+    remove_jpg: false
+    resize:
+      enabled: false
+      target_height: 1248
+      target_width: 704
+
+  # Wie sollen Inputs ins work_dir kommen?
+  # symlink: schnell, aber dann darf preprocess NICHT in-place laufen!
+  input_mirror: "symlink"   # ["symlink", "copy"]
+
+vggt:
+  use_ba: false
+  max_reproj_error: 8.0
+  shared_camera: false
+  camera_type: "SIMPLE_PINHOLE"
+  vis_thresh: 0.2
+  query_frame_num: 8
+  max_query_pts: 4096
+  fine_tracking: true
+  conf_thres_value: 5.0
+  keep_top_percent: 0.2
+  seed: 42
+
+qwen:
+  model_path: "ovedrive/Qwen-Image-Edit-2511-4bit"
+  clothing_image: "data/clothing/upper/short/shirts/white_plants_shirt.jpg"
+  prompt: "Replace the person's original clothing with the clothing image. Do not invent new features. Keep the person identical: pose, body, face, hair, and background must remain unchanged."
+  negative_prompt: "change pose"
+  true_cfg_scale: 4.0
+  num_inference_steps: 20
+  seed: 0
+  extensions: [".jpg", ".jpeg", ".png"]
+
+gsplat:
+  test_every: 8
+  data_factor: 1
+  eval_steps: [2000, 5000, 10000, 15000, 20000, 25000, 30000]
