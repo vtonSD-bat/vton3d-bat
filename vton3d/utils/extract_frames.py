@@ -22,7 +22,7 @@ class ExtractFramesConfig:
     prefix: Optional[str] = None
     clear_output_dir: bool = False
 
-
+@dataclass
 class ExtractFramesResult:
     video_path: Path
     out_images_dir: Path

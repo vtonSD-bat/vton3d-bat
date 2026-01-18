@@ -157,7 +157,7 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
     ef_cfg = cfg.get("extract_frames", {}) or {}
     num_frames = int(ef_cfg.get("num_frames", 0))
 
-    base_scene_dir = base_scene_dir.with_name(f"{base_scene_dir.name}_{num_frames}")
+    scene_dir = base_scene_dir / f"{base_scene_dir.name}_{num_frames}"
 
     videos_dir = Path(ef_cfg.get("videos_dir", "data/videos")).expanduser().resolve()
     video_name = ef_cfg.get("video_name", None)
@@ -175,7 +175,6 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
     print(f"  -> Base scene_dir: {base_scene_dir}")
     print(f"  -> Frames: {num_frames}")
 
-    scene_dir = base_scene_dir
     scene_dir.mkdir(parents=True, exist_ok=True)
 
     ef = ExtractFramesConfig(
@@ -263,7 +262,7 @@ def run_pipeline(cfg: dict, base_scene_dir: Path):
     steps = pipeline_cfg.get("steps", ["extract_frames", "vggt", "qwen"])
 
     if "extract_frames" in steps:
-        run_step_extract_frames(cfg, base_scene_dir)
+        base_scene_dir = run_step_extract_frames(cfg, base_scene_dir)
 
 
     real_images_dir = base_scene_dir / "real" / "images"
@@ -311,7 +310,7 @@ def main():
     wb = cfg.get("wandb", {})
     wandb.init(
         project=wb.get("project", "vton_pipeline"),
-        name=wb.get("wandb", {}).get("run_name", None),
+        name=wb.get("run_name", None),
         entity=wb.get("entity", None),
         config=cfg,
         id=os.environ.get("WANDB_RUN_ID"),
