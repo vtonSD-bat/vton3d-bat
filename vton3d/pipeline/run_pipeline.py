@@ -153,7 +153,6 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
     - extract frames from input video
     """
 
-    print("=== [Step 2] Extract Frames from Video ===")
     ef_cfg = cfg.get("extract_frames", {}) or {}
     num_frames = int(ef_cfg.get("num_frames", 0))
 
@@ -170,7 +169,7 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
             raise FileNotFoundError(f"No videos found in {videos_dir}")
         video_path = videos[0]
 
-    print("=== [Step 0] Extract Frames ===")
+    print("=== [Step 1] Extract Frames ===")
     print(f"  -> Video: {video_path}")
     print(f"  -> Base scene_dir: {base_scene_dir}")
     print(f"  -> Frames: {num_frames}")
@@ -193,7 +192,11 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
 
     print("=== [Step Extract Frames] Done ===\n")
 
+    # Update cfg paths to point to the new scene_dir
     cfg["paths"]["scene_dir"] = str(scene_dir)
+    if "runs_root" in cfg["paths"]:
+        cfg["paths"]["runs_root"] = str(scene_dir / "_runs")
+
     return scene_dir
 
 
