@@ -39,10 +39,12 @@ Then run the pipeline with:
 sbatch scicore_run_pipeline.sh
 
 ```
-
-# Create Sweep for eperiments with WandB
-
-1. Slurm-Terminal
+```
+Create Sweep for eperiments with WandB
+1. activate env
+    - conda activate vton 
+2. Slurm-Terminal
    - wandb sweep configs/sweeps/vggt_sweep.yaml (copy outputpath sweepid)
-2. Run Sweep with:
+3. Run Sweep with:
    - sbatch run_pipeline_wandb_sweep.sh team_entity/vton_pipeline/sweepid
+```
