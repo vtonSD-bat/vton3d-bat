@@ -12,7 +12,7 @@ import wandb
 from vton3d.pipeline.run_pipeline import load_config, parse_cli_args, run_pipeline
 
 
-KNOWN_SECTIONS = {"paths", "pipeline", "frame_extraction", "vggt", "qwen", "gsplat", "wandb"}
+KNOWN_SECTIONS = {"paths", "pipeline", "extract_frames", "vggt", "qwen", "gsplat", "wandb"}
 
 
 def _set_by_path(d: dict, path: list[str], value: Any):
