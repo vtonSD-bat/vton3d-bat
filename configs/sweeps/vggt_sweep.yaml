@@ -7,15 +7,26 @@ metric:
   goal: maximize
 
 parameters:
-  vggt.keep_top_percent:
-    min: 0.05
-    max: 0.50
-
-  vggt.seed:
-    values: [0, 1, 2, 3, 4]
-
   vggt.use_ba:
-    values: [false]
+    values: [true, false]
+  vggt.shared_camera:
+    values: [true, false]
+  vggt.fine_tracking:
+    value: true
+  vggt.keep_top_percent:
+    value: 0.2
+  vggt.max_reproj_error:
+    values: [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
+  vggt.vis_thresh:
+    min: 0.05
+    max: 0.55
+  vggt.query_frame_num:
+    min: 3
+    max: 16
+  vggt.max_query_pts:
+    values: [ 1024, 2048, 4096, 8192 ]
+  vggt.seed:
+    value: 42
 
 command:
   - ${env}

@@ -29,7 +29,7 @@ extract_frames:
 vggt:
   use_ba: false
   max_reproj_error: 8.0
-  shared_camera: false
+  shared_camera: true
   camera_type: "SIMPLE_PINHOLE"
   vis_thresh: 0.2
   query_frame_num: 8
