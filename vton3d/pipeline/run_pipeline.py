@@ -158,7 +158,13 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
 
     scene_dir = base_scene_dir / f"{base_scene_dir.name}_{num_frames}"
 
-    videos_dir = Path(ef_cfg.get("videos_dir", "data/videos")).expanduser().resolve()
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"]).expanduser().resolve()
+    videos_dir = Path(ef_cfg.get("videos_dir", "video")).expanduser()
+    if not videos_dir.is_absolute():
+        videos_dir = base_scene_dir / videos_dir
+    videos_dir = videos_dir.resolve()
+
     video_name = ef_cfg.get("video_name", None)
 
     if video_name:
@@ -262,9 +268,9 @@ def run_pipeline(cfg: dict, base_scene_dir: Path):
     - runs the Qwen clothing edit step
     """
     pipeline_cfg = cfg.get("pipeline", {})
-    steps = pipeline_cfg.get("steps", ["extract_frames", "vggt", "qwen"])
+    steps_cfg = pipeline_cfg.get("steps", None)
 
-    if "extract_frames" in steps:
+    if steps_cfg["extract_frames"] is True:
         base_scene_dir = run_step_extract_frames(cfg, base_scene_dir)
 
 
@@ -278,9 +284,9 @@ def run_pipeline(cfg: dict, base_scene_dir: Path):
         target_width=704,
     )
 
-    if "vggt" in steps:
+    if steps_cfg["vggt"] is True:
         run_step_vggt_colmap(cfg)
-    if "qwen" in steps:
+    if steps_cfg["qwen"] is True:
         run_step_qwen_clothing(cfg)
 
     print("[Pipeline] All defined steps completed.")

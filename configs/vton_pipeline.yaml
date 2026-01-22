@@ -8,11 +8,15 @@ wandb:
   mode: "online"
 
 pipeline:
-  steps: ["extract_frames", "vggt", "qwen"]
+  steps:
+    extract_frames: true
+    vggt: false
+    qwen: true
   input_mirror: "copy"
 
+
 extract_frames:
-  videos_dir: "data/train/florian/video"
+  videos_dir: "video"
   video_name: "florian_shirt.MOV"        # optional: if not specified, process first video in videos_dir
   num_frames: 6
   start: 0
