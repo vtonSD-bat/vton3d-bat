@@ -12,6 +12,7 @@ pipeline:
     extract_frames: true
     vggt: false
     qwen: true
+    optical_flow: true
   input_mirror: "copy"
 
 
@@ -51,6 +52,19 @@ qwen:
   seed: 0
   # File extensions for images in <scene_dir>/real/images/
   extensions: [".jpg", ".jpeg", ".png"]
+
+
+masked_optical_flow:
+  sapiens_repo: "Sapiens-Pytorch-Inference"
+  sapiens_variant: "SEGMENTATION_1B"
+  target_h: 1248
+  target_w: 704
+  dilate_px: 10
+  feather_sigma: 7.0
+  ecc_n_iter: 400
+  ecc_eps: 1e-7
+  # debug_dir: "_debug_mof"   #optional
+
 
 gsplat:
   test_every: 8
