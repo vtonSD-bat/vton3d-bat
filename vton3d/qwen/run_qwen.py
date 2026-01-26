@@ -174,6 +174,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     """
     Run the Qwen clothing edit batch using a config dictionary (e.g. cfg['qwen']).
     """
+    wandb.define_metric("qwen/*", step_metric="qwen/image_index")
+
     model_path = qwen_cfg.get("model_path", "ovedrive/Qwen-Image-Edit-2509-4bit")
     source_dir = Path(qwen_cfg["source_dir"])
     clothing_path = Path(qwen_cfg["clothing_image"])
@@ -209,7 +211,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     pipeline = load_pipeline(model_path)
     base_generator = torch.Generator(device="cpu").manual_seed(seed)
     img_count = 0
-    wandb.log({"qwen/clothing_image": wandb.Image(clothing_image, caption=clothing_path.name)}, step=0)
+    wandb.log({"qwen/clothing_image": wandb.Image(clothing_image, caption=clothing_path.name)})
 
     estimator = SapiensSegmentation(
         SapiensSegmentationType.SEGMENTATION_1B,
@@ -282,7 +284,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             ),
             f"qwen/face_sim_input_vs_output": face_sim,
 
-        }, step=img_count)
+        })
 
         clear_gpu_cache()
 
