@@ -79,9 +79,12 @@ def run_step_gsplat(cfg: dict) -> None:
         "--eval_steps", *[str(s) for s in eval_steps],
         "--tile_size", str(tile_size),
         "--max_steps", str(max_steps),
-        "--disable_video", str(disable_video),
-        "--disable_viewer", str(disable_viewer),
     ]
+
+    if disable_video:
+        cmd.append("--disable_video")
+    if disable_viewer:
+        cmd.append("--disable_viewer")
 
     print(f"  -> gsplat repo: {gsplat_repo}")
     print(f"  -> running: {' '.join(cmd)}")
