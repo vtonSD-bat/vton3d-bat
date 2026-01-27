@@ -53,7 +53,9 @@ def run_step_gsplat(cfg: dict) -> None:
     max_steps = gs_cfg.get("max_steps", 30000)
     disable_video = gs_cfg.get("disable_video", False)
     disable_viewer = gs_cfg.get("disable_viewer", True)
-    wandb_project = gs_cfg.get("wandb_project", "vton_pipeline")
+
+    wandb_cfg = cfg.get("wandb", {})
+    wandb_project = wandb_cfg.get("project", "vton_pipeline")
 
     # Erwartet: cfg["paths"]["scene_dir"]
     project_root = Path(__file__).resolve().parents[2]
