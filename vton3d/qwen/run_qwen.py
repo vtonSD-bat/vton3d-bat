@@ -174,6 +174,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     """
     Run the Qwen clothing edit batch using a config dictionary (e.g. cfg['qwen']).
     """
+    wandb.define_metric("qwen/*", step_metric="qwen/image_index")
+
     model_path = qwen_cfg.get("model_path", "ovedrive/Qwen-Image-Edit-2509-4bit")
     source_dir = Path(qwen_cfg["source_dir"])
     clothing_path = Path(qwen_cfg["clothing_image"])
@@ -269,7 +271,6 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         )
 
         img_count += 1
-
         wandb.log({
             "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
             "qwen/output_image": wandb.Image(output_image, caption=out_path.name),
