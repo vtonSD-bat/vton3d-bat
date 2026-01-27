@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=vton_pipeline
+#SBATCH --job-name=vton_pipeline_frames
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=10G
-#SBATCH --time=01:00:00
-#SBATCH --qos=gpu6hours
+#SBATCH --time=18:00:00
+#SBATCH --qos=gpu1day
 #SBATCH --output=logs/vton_pipeline.o%j
 #SBATCH --error=logs/vton_pipeline.e%j
 #SBATCH --partition=a100-80g
@@ -23,7 +23,7 @@ CONFIG_PATH=${1:-configs/vton_pipeline.yaml}
 # ------------------------------------------------------------
 # Sweep Values
 # ------------------------------------------------------------
-test_num_frames=(1 2)
+test_num_frames=(12 16 20 24 30 40 60)
 
 # ------------------------------------------------------------
 # Backup config (safety)
@@ -185,7 +185,7 @@ for nf in "${test_num_frames[@]}"; do
 
   # set per-run wandb IDs (so they don't overwrite each other)
   export WANDB_RUN_ID="slurm-${SLURM_JOB_ID:-manual}-nf${nf}"
-  export WANDB_NAME="vton_pipeline_nf${nf}"
+  export WANDB_NAME="vton_pipeline__${nf}"
 
   run_full_pipeline "$CONFIG_PATH" "$nf"
 done

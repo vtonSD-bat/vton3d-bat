@@ -317,9 +317,18 @@ def main():
 
     os.makedirs("logs", exist_ok=True)
     wb = cfg.get("wandb", {})
+    num_frames = cfg.get("extract_frames", {}).get("num_frames")
+    base_run_name = wb.get("run_name", None)
+
+    run_name = (
+    f"{base_run_name}_{num_frames}"
+    if base_run_name is not None and num_frames is not None
+    else base_run_name
+    )
+
     wandb.init(
         project=wb.get("project", "vton_pipeline"),
-        name=wb.get("run_name", None),
+        name=run_name,
         entity=wb.get("entity", None),
         config=cfg,
         id=os.environ.get("WANDB_RUN_ID"),

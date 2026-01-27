@@ -1193,7 +1193,7 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
     if world_rank == 0:
         run_id = os.environ.get("WANDB_RUN_ID")
         wandb.init(
-            project="vton_pipeline",
+            project="vton_pipeline_frames",
             id=run_id,
             resume="allow" if run_id is not None else None,
             config=vars(cfg),
@@ -1225,7 +1225,7 @@ def main(local_rank: int, world_rank, world_size: int, cfg: Config):
     if not cfg.disable_viewer:
         runner.viewer.complete()
         print("Viewer running... Ctrl+C to exit.")
-        time.sleep(1000000)
+        time.sleep(30)
     if world_rank == 0:
         wandb.finish()
 
