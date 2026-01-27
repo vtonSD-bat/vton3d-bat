@@ -53,6 +53,7 @@ def run_step_gsplat(cfg: dict) -> None:
     max_steps = gs_cfg.get("max_steps", 30000)
     disable_video = gs_cfg.get("disable_video", False)
     disable_viewer = gs_cfg.get("disable_viewer", True)
+    wandb_project = gs_cfg.get("wandb_project", "vton_pipeline")
 
     # Erwartet: cfg["paths"]["scene_dir"]
     project_root = Path(__file__).resolve().parents[2]
@@ -79,6 +80,7 @@ def run_step_gsplat(cfg: dict) -> None:
         "--eval_steps", *[str(s) for s in eval_steps],
         "--tile_size", str(tile_size),
         "--max_steps", str(max_steps),
+        "--wandb_project", str(wandb_project),
     ]
 
     if disable_video:
