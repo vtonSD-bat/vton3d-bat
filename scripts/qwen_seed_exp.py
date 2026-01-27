@@ -16,7 +16,7 @@ def parse_args():
     p.add_argument("--clothing_image", required=True, type=str)
 
     # model / io
-    p.add_argument("--model_path", default="ovedrive/Qwen-Image-Edit-2509-4bit", type=str)
+    p.add_argument("--model_path", default="Qwen/Qwen-Image-Edit-2511", type=str)
     p.add_argument("--out_dir", default="seed_test_out", type=str)
 
     # prompts
