@@ -104,6 +104,9 @@ def infer_eval_flag_from_clothing_path(clothing_path: Path) -> str:
     """
     parts = [p.lower() for p in clothing_path.parts]
 
+    if "dress" in parts:
+        return "dress"
+
     if "lower" in parts and "upper" in parts:
         # sehr selten, aber dann ist der Pfad ambig
         raise ValueError(
@@ -220,7 +223,12 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     )
 
     eval_flag = infer_eval_flag_from_clothing_path(clothing_path)
-    length_flag = infer_length_flag_from_clothing_path(clothing_path)
+
+    if eval_flag == "dress":
+        length_flag = None
+    else:
+        length_flag = infer_length_flag_from_clothing_path(clothing_path)
+
     print(f"[qwen] inferred eval_flag='{eval_flag}', length_flag='{length_flag}' from clothing_image='{clothing_path}'")
 
     for img_path in image_files:

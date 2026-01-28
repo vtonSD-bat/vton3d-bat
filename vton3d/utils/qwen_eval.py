@@ -76,10 +76,13 @@ def qwen_eval_masked(img1_path, img2_path, flag, length_flag, estimator):
     flag = flag.lower()
     length_flag = length_flag.lower()
 
-    if flag not in ("upper", "lower"):
-        raise ValueError(f"Invalid flag '{flag}', expected 'upper' or 'lower'.")
-    if length_flag not in ("short", "long"):
-        raise ValueError(f"Invalid length_flag '{length_flag}', expected 'short' or 'long'.")
+    if flag not in ("upper", "lower", "dress"):
+        raise ValueError(f"Invalid flag '{flag}', expected 'upper', 'lower', or 'dress'.")
+
+    if length_flag is not None:
+        length_flag = length_flag.lower()
+        if length_flag not in ("short", "long"):
+            raise ValueError(f"Invalid length_flag '{length_flag}', expected 'short' or 'long'.")
 
     clothing_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
     clothing_idx = _idx(clothing_name)
@@ -88,34 +91,48 @@ def qwen_eval_masked(img1_path, img2_path, flag, length_flag, estimator):
 
     mask_exclude = (seg_map == clothing_idx)
 
-    if length_flag == "long":
-        if flag == "upper":
-            arm_names = ["Left Upper Arm", "Right Upper Arm", "Left Lower Arm", "Right Lower Arm"]
-            arm_indices = [i for i in (_idx(n) for n in arm_names) if i is not None]
+    if flag in ("upper", "lower"):
+        clothing_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
+        clothing_idx = _idx(clothing_name)
+        if clothing_idx is None:
+            raise ValueError(f"Class '{clothing_name}' not found in classes list.")
 
-            has_arm = False
-            for ai in arm_indices:
-                if np.any(seg_map == ai):
-                    has_arm = True
-                    break
+        mask_exclude = (seg_map == clothing_idx)
 
-            if has_arm:
-                for ai in arm_indices:
-                    mask_exclude |= (seg_map == ai)
+        # keep existing long/short behavior
+        if length_flag == "long":
+            if flag == "upper":
+                arm_names = ["Left Upper Arm", "Right Upper Arm", "Left Lower Arm", "Right Lower Arm"]
+                arm_indices = [i for i in (_idx(n) for n in arm_names) if i is not None]
+                if any(np.any(seg_map == ai) for ai in arm_indices):
+                    for ai in arm_indices:
+                        mask_exclude |= (seg_map == ai)
+            else:
+                leg_names = ["Left Upper Leg", "Right Upper Leg", "Left Lower Leg", "Right Lower Leg"]
+                leg_indices = [i for i in (_idx(n) for n in leg_names) if i is not None]
+                if any(np.any(seg_map == li) for li in leg_indices):
+                    for li in leg_indices:
+                        mask_exclude |= (seg_map == li)
 
-        else:  # lower
-            leg_names = ["Left Upper Leg", "Right Upper Leg", "Left Lower Leg", "Right Lower Leg"]
-            leg_indices = [i for i in (_idx(n) for n in leg_names) if i is not None]
+    else:
+        # dress: exclude BOTH clothing classes + ALL arms + ALL legs (always)
+        idxs = []
+        for n in ("Upper Clothing", "Lower Clothing"):
+            i = _idx(n)
+            if i is not None:
+                idxs.append(i)
+        if not idxs:
+            raise ValueError("Neither 'Upper Clothing' nor 'Lower Clothing' found in classes list.")
 
-            has_leg = False
-            for li in leg_indices:
-                if np.any(seg_map == li):
-                    has_leg = True
-                    break
+        mask_exclude = np.isin(seg_map, idxs)
 
-            if has_leg:
-                for li in leg_indices:
-                    mask_exclude |= (seg_map == li)
+        limb_names = [
+            "Left Upper Arm", "Right Upper Arm", "Left Lower Arm", "Right Lower Arm",
+            "Left Upper Leg", "Right Upper Leg", "Left Lower Leg", "Right Lower Leg",
+        ]
+        limb_indices = [i for i in (_idx(n) for n in limb_names) if i is not None]
+        for li in limb_indices:
+            mask_exclude |= (seg_map == li)
 
     mask_include = ~mask_exclude
 
@@ -166,10 +183,13 @@ def qwen_fashionclip_similarity_masked_clothing(
       masked_rgb (optional): np.ndarray HxWx3 uint8 (RGB) if return_masked_rgb=True else None
     """
     flag = flag.lower()
-    if flag not in ("upper", "lower"):
-        raise ValueError(f"Invalid flag '{flag}', expected 'upper' or 'lower'.")
+    if flag not in ("upper", "lower",  "dress"):
+        raise ValueError(f"Invalid flag '{flag}', expected 'upper',  'dress' or 'lower'.")
 
-    clothing_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
+    if flag == "dress":
+        clothing_name = "Upper Clothing"
+    else:
+        clothing_name = "Upper Clothing" if flag == "upper" else "Lower Clothing"
     if clothing_name not in classes:
         raise ValueError(f"Class '{clothing_name}' not found in classes list.")
     clothing_idx = classes.index(clothing_name)
