@@ -10,9 +10,10 @@ wandb:
 pipeline:
   steps:
     extract_frames: true
-    vggt: false
+    vggt: true
     qwen: true
     optical_flow: true
+    gsplat: true
   input_mirror: "copy"
 
 
@@ -42,8 +43,8 @@ vggt:
 
 qwen:
   #qwen model
-  model_path: "ovedrive/Qwen-Image-Edit-2511-4bit"
-  clothing_image: "data/clothing/upper/short/shirts/white_plants_shirt.jpg"
+  model_path: "Qwen/Qwen-Image-Edit-2511"
+  clothing_image: "data/clothing/train/upper/short/shirts/white_plants_shirt.jpg"
   prompt: "Replace the person's original clothing with the clothing image. Do not invent new features. Keep the person identical: pose, body, face, hair, and background must remain unchanged."
   negative_prompt: "change pose"
   # Diffusion parameters
@@ -69,6 +70,10 @@ masked_optical_flow:
 gsplat:
   test_every: 8
   data_factor: 1
+  tile_size: 8
+  max_steps: 30_000
+  disable_video: true
+  disable_viewer: true
   eval_steps:
     - 2000
     - 5000
