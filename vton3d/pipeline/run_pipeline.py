@@ -336,11 +336,26 @@ def run_step_optical_flow_alignment(cfg: dict):
             aligned_bgr = cv2.imread(str(out_path))
             if aligned_bgr is None:
                 raise RuntimeError(f"Could not read aligned image after write: {out_path}")
-            aligned_rgb = cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2RGB)
 
             mask = result["mask_ignore"]
+
             real_bgr = cv2.imread(str(real_path))
-            aligned_bgr = cv2.imread(str(out_path))
+            if real_bgr is None:
+                raise RuntimeError(f"Could not read real image: {real_path}")
+
+            do_comp = bool(mof_cfg_dict.get("composite_original_outside_mask", False))
+            if do_comp:
+                inside = (mask > 0)
+                comp_bgr = real_bgr.copy()
+                comp_bgr[inside] = aligned_bgr[inside]
+
+                ok = cv2.imwrite(str(out_path), comp_bgr)
+                if not ok:
+                    raise IOError(f"cv2.imwrite failed for composite: {out_path}")
+
+                aligned_bgr = comp_bgr
+
+            aligned_rgb = cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2RGB)
 
             real = real_bgr.astype(np.float32) / 255.0
             aligned = aligned_bgr.astype(np.float32) / 255.0
@@ -348,23 +363,13 @@ def run_step_optical_flow_alignment(cfg: dict):
             mask_ignore = mask.astype(bool)
             mask_include = ~mask_ignore
 
-            abs_diff = np.abs(real - aligned)
-            heatmap_gray = abs_diff.mean(axis=2)
-            heatmap_gray[mask_ignore] = 0.0
-
-            norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
-
-            colormap = cm.get_cmap("Reds")
-            heatmap_rgb = (colormap(norm)[..., :3] * 255).astype(np.uint8)
-
             diff = (real - aligned)
             abs_diff = np.abs(diff)
             heatmap_gray = abs_diff.mean(axis=2)
             heatmap_gray[mask_ignore] = 0.0
 
             norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
-            colormap = cm.get_cmap("Reds")
-            heatmap_rgb = (colormap(norm)[..., :3] * 255).astype(np.uint8)
+            heatmap_rgb = (cm.get_cmap("Reds")(norm)[..., :3] * 255).astype(np.uint8)
 
             diff2 = diff ** 2
             diff2_masked = diff2[mask_include]
