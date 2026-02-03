@@ -10,7 +10,7 @@ wandb:
 pipeline:
   steps:
     extract_frames: true
-    vggt: false
+    vggt: true
     qwen: true
     gsplat: true
   input_mirror: "copy"
@@ -19,7 +19,7 @@ pipeline:
 extract_frames:
   videos_dir: "video"
   video_name: "florian_shirt.MOV"        # optional: if not specified, process first video in videos_dir
-  num_frames: 6
+  num_frames: 16
   start: 0
   end: null
   ext: "png"
@@ -42,7 +42,7 @@ vggt:
 
 qwen:
   #qwen model
-  model_path: "ovedrive/Qwen-Image-Edit-2511-4bit"
+  model_path: "Qwen/Qwen-Image-Edit-2511"
   clothing_image: "data/clothing/train/upper/short/shirts/white_plants_shirt.jpg"
   prompt: "Replace the person's original clothing with the clothing image. Do not invent new features. Keep the person identical: pose, body, face, hair, and background must remain unchanged."
   negative_prompt: "change pose"
