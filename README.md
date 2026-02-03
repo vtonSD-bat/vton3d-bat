@@ -2,7 +2,7 @@
 Main Repo for Virtual Try-On Pipeline
 
 ```
-Installation (Only Linux):
+Installation (Only Linux) works on FHNW SLURM Cluster:
 1. Go in create_envs.sh and set your desired Cuda Pytorch version 
 (from https://pytorch.org/get-started/locally/) in this line: 
 
@@ -20,4 +20,44 @@ as they both need same libraries in different versions.
 (at least the input folder where the images of the person are under: path: scene_dir, 
 and the clothing image under: qwen: clothing_image)
 6. run sbatch run_pipeline.sh to run the pipeline on your images
+```
+For Scicore Cluster with a100 and a100-80g GPUs:
+
+```
+Run the following command to create the envs:
+bash scicore_create_envs.sh
+
+
+If you want to use the Pipeline with the full Precision Qwen Image Edit Model, change the model 
+in the configs to: Qwen/Qwen-Image-Edit-2511
+For the full precision model you need at least 
+50GB GPU memory (a100-80g) and about 65GB CPU Memory.
+For the 4-bit quantized model (ovedrive/Qwen-Image-Edit-2511-4bit) you need 
+at least 20GB GPU memory (a100 which has 40GB) or SLURM FHNW with A4500 GPU.
+
+Then run the pipeline with:
+sbatch scicore_run_pipeline.sh
+
+```
+Create Sweep for eperiments with WandB
+```
+1. activate env
+    - conda activate vton 
+2. Slurm-Terminal
+   - wandb sweep configs/sweeps/vggt_sweep.yaml (copy outputpath sweepid)
+3. Run Sweep with:
+   - sbatch run_pipeline_wandb_sweep.sh team_entity/vton_pipeline/sweepid
+```
+View checkpoints from Gaussian Splatting (Viser) from Scicore Cluster
+```
+(only for User with Scicore Account)
+
+1. connect to scicore
+2. open scicore_view_gsplat.sh
+    - change --ckpt param to your desired checkpoint path
+3. run the script with
+    - sbatch scicore_view_gsplat.sh
+4. open a local terminal
+    - ssh -N -L 8080:YourScicoreNodename:8080 YourUsername@login12.scicore.unibas.ch
+5. open your browser and go to http://localhost:8080
 ```

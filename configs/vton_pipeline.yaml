@@ -1,15 +1,34 @@
-run_name: "vton_flo_16"
-
 paths:
-  # Base path of your scene
-  # VGGT will use: <scene_dir>/real/images/
-  # Qwen will use: <scene_dir>/real/images/
-  # Gsplat will use: <scene_dir>/qwen/images/
-  scene_dir: "data/flo_16"
+  scene_dir: "data/train/florian/"
+  runs_root: "data/train/florian/sweep_runs"   # optional
+
+wandb:
+  project: "vton_pipeline"
+  run_name: "vton_florian_16"
+  mode: "online"
+
+pipeline:
+  steps:
+    extract_frames: true
+    vggt: true
+    qwen: true
+    gsplat: true
+  input_mirror: "copy"
+
+
+extract_frames:
+  videos_dir: "video"
+  video_name: "florian_shirt.MOV"        # optional: if not specified, process first video in videos_dir
+  num_frames: 16
+  start: 0
+  end: null
+  ext: "png"
+  rotate: 90
+  overwrite: true
+  clear_output_dir: true
 
 vggt:
   use_ba: false
-  # VGGT reconstruction parameters
   max_reproj_error: 8.0
   shared_camera: false
   camera_type: "SIMPLE_PINHOLE"
@@ -23,8 +42,8 @@ vggt:
 
 qwen:
   #qwen model
-  model_path: "ovedrive/Qwen-Image-Edit-2511-4bit"
-  clothing_image: "data/clothing/upper/short/shirts/white_plants_shirt.jpg"
+  model_path: "Qwen/Qwen-Image-Edit-2511"
+  clothing_image: "data/clothing/train/upper/short/shirts/white_plants_shirt.jpg"
   prompt: "Replace the person's original clothing with the clothing image. Do not invent new features. Keep the person identical: pose, body, face, hair, and background must remain unchanged."
   negative_prompt: "change pose"
   # Diffusion parameters
@@ -37,6 +56,10 @@ qwen:
 gsplat:
   test_every: 8
   data_factor: 1
+  tile_size: 8
+  max_steps: 30_000
+  disable_video: true
+  disable_viewer: true
   eval_steps:
     - 2000
     - 5000
@@ -45,3 +68,4 @@ gsplat:
     - 20000
     - 25000
     - 30000
+

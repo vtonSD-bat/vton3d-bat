@@ -36,6 +36,7 @@ dependencies = [
     "ultralytics==8.3.154",
     "joblib==1.5.1",
     "insightface",
+    "pyyaml",
 
     # Git dependencies
     "lightglue @ git+https://github.com/jytime/LightGlue.git",
