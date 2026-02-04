@@ -30,6 +30,12 @@ from vton3d.utils.extract_frames import (
     ExtractFramesConfig,
     extract_frames_to_scene_dir
 )
+
+from vton3d.utils.background_segmentation import (
+    run_background_segmentation_for_scene,
+    BackgroundSegmentationConfig,
+)
+
 from vton3d.vggt.run_vggt import vggt2colmap
 from vton3d.qwen.run_qwen import run_qwen_from_config_dict
 from argparse import Namespace
@@ -225,6 +231,26 @@ def run_step_vggt_colmap(cfg: dict):
     print("=== [Step VGGT] Done ===\n")
 
 
+def run_step_background_segmentation(cfg: dict):
+    base_scene_dir = Path(cfg["paths"]["scene_dir"]).expanduser().resolve()
+
+    bs_cfg = cfg.get("background_segmentation", {}) or {}
+    bs = BackgroundSegmentationConfig(
+        model_id=str(bs_cfg.get("model_id", "facebook/sam3")),
+        text_prompt=str(bs_cfg.get("text_prompt", "human")),
+        threshold=float(bs_cfg.get("threshold", 0.5)),
+        mask_threshold=float(bs_cfg.get("mask_threshold", 0.5)),
+        min_score=float(bs_cfg.get("min_score", 0.0)),
+        top_k=int(bs_cfg.get("top_k", 0)),
+        keep_original_if_no_mask=bool(bs_cfg.get("keep_original_if_no_mask", True)),
+        overwrite=True,
+        out_dir=None,
+    )
+
+    stats = run_background_segmentation_for_scene(base_scene_dir, cfg=bs)
+    print(f"  -> Background segmentation stats: {stats}")
+
+
 def run_step_qwen_clothing(cfg: dict):
     """
     Third pipeline step:
@@ -286,6 +312,10 @@ def run_pipeline(cfg: dict, base_scene_dir: Path):
 
     if steps_cfg["vggt"] is True:
         run_step_vggt_colmap(cfg)
+
+    if steps_cfg.get("background_segmentation", False) is True:
+        run_step_background_segmentation(cfg)
+
     if steps_cfg["qwen"] is True:
         run_step_qwen_clothing(cfg)
 
