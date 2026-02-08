@@ -23,13 +23,21 @@ import subprocess
 import shutil
 import sys
 import wandb
-
+import cv2
+import numpy as np
+import matplotlib.cm as cm
 
 from vton3d.utils.extract_frames import (
     list_videos,
     ExtractFramesConfig,
     extract_frames_to_scene_dir
 )
+
+from vton3d.utils.masked_optical_flow import (
+    MaskedOpticalFlow,
+    MaskedOpticalFlowConfig,
+)
+
 from vton3d.vggt.run_vggt import vggt2colmap
 from vton3d.qwen.run_qwen import run_qwen_from_config_dict
 from argparse import Namespace
@@ -149,7 +157,6 @@ def build_vggt_args_from_config(cfg: dict) -> Namespace:
 # pipeline steps
 def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
     """
-    first pipeline step:
     - extract frames from input video
     """
 
@@ -208,7 +215,6 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
 
 def run_step_vggt_colmap(cfg: dict):
     """
-    Second pipeline step:
     - prepare VGGT arguments
     - call vggt_colmap.demo_fn()
     """
@@ -227,7 +233,6 @@ def run_step_vggt_colmap(cfg: dict):
 
 def run_step_qwen_clothing(cfg: dict):
     """
-    Third pipeline step:
     run the Qwen clothing edit batch and store outputs in <scene_dir>/qwen/images.
     Qwen uses input images from <scene_dir>/real/images.
     """
@@ -258,6 +263,144 @@ def run_step_qwen_clothing(cfg: dict):
     print("=== [Step Qwen] Done ===\n")
 
 
+def run_step_optical_flow_alignment(cfg: dict):
+    """
+    Align Qwen-edited images back to the original (real) images.
+    - src: qwen/images/<name>.png
+    - tgt: real/images/<name>.png
+    - output: overwrite qwen/images/<name>.png
+    """
+    print("=== [Step 4] Masked Optical Flow alignment (Qwen -> Real) ===")
+
+    base_scene_dir = Path(cfg["paths"]["scene_dir"])
+    real_dir = base_scene_dir / "real" / "images"
+    qwen_dir = base_scene_dir / "qwen" / "images"
+
+    if not real_dir.exists():
+        raise FileNotFoundError(f"Missing real images dir: {real_dir}")
+    if not qwen_dir.exists():
+        raise FileNotFoundError(f"Missing qwen images dir: {qwen_dir}")
+
+    mof_cfg_dict = cfg.get("masked_optical_flow", {}) or {}
+
+    mof_cfg = MaskedOpticalFlowConfig(
+        target_h=int(mof_cfg_dict.get("target_h", 1248)),
+        target_w=int(mof_cfg_dict.get("target_w", 704)),
+        sapiens_repo=mof_cfg_dict.get("sapiens_repo", "Sapiens-Pytorch-Inference"),
+        sapiens_variant=mof_cfg_dict.get("sapiens_variant", "SEGMENTATION_1B"),
+        dilate_px=int(mof_cfg_dict.get("dilate_px", 10)),
+        feather_sigma=float(mof_cfg_dict.get("feather_sigma", 7.0)),
+        ecc_n_iter=int(mof_cfg_dict.get("ecc_n_iter", 400)),
+        ecc_eps=float(mof_cfg_dict.get("ecc_eps", 1e-7)),
+        flag_source_path=cfg.get("qwen", {}).get("clothing_image", None),
+    )
+
+    aligner = MaskedOpticalFlow(mof_cfg)
+
+    debug_root = mof_cfg_dict.get("debug_dir", None)
+    if debug_root is not None:
+        debug_root = (base_scene_dir / str(debug_root)).resolve()
+        debug_root.mkdir(parents=True, exist_ok=True)
+
+    qwen_images = sorted([p for p in qwen_dir.iterdir() if p.suffix.lower() == ".png"])
+    if not qwen_images:
+        print(f"  -> No PNGs found in {qwen_dir}. Nothing to do.")
+        print("=== [Step Optical Flow] Done ===\n")
+        return
+
+    aligned_count = 0
+    skipped_missing_real = 0
+    failed = 0
+
+    for qwen_path in qwen_images:
+        real_path = real_dir / qwen_path.name
+        if not real_path.exists():
+            skipped_missing_real += 1
+            continue
+
+        out_path = qwen_path
+
+        debug_dir = None
+        if debug_root is not None:
+            debug_dir = debug_root / qwen_path.stem
+
+        try:
+            result = aligner.run_from_paths(
+                src_path=qwen_path,
+                tgt_path=real_path,
+                output_path=out_path,
+                debug_dir=debug_dir,
+            )
+            aligned_count += 1
+
+            aligned_bgr = cv2.imread(str(out_path))
+            if aligned_bgr is None:
+                raise RuntimeError(f"Could not read aligned image after write: {out_path}")
+
+            mask = result["mask_ignore"]
+
+            real_bgr = cv2.imread(str(real_path))
+            if real_bgr is None:
+                raise RuntimeError(f"Could not read real image: {real_path}")
+
+            do_comp = bool(mof_cfg_dict.get("composite_original_outside_mask", False))
+            if do_comp:
+                inside = (mask > 0)
+                comp_bgr = real_bgr.copy()
+                comp_bgr[inside] = aligned_bgr[inside]
+
+                ok = cv2.imwrite(str(out_path), comp_bgr)
+                if not ok:
+                    raise IOError(f"cv2.imwrite failed for composite: {out_path}")
+
+                aligned_bgr = comp_bgr
+
+            aligned_rgb = cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2RGB)
+
+            real = real_bgr.astype(np.float32) / 255.0
+            aligned = aligned_bgr.astype(np.float32) / 255.0
+
+            mask_ignore = mask.astype(bool)
+            mask_include = ~mask_ignore
+
+            diff = (real - aligned)
+            abs_diff = np.abs(diff)
+            heatmap_gray = abs_diff.mean(axis=2)
+            heatmap_gray[mask_ignore] = 0.0
+
+            norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
+            heatmap_rgb = (cm.get_cmap("Reds")(norm)[..., :3] * 255).astype(np.uint8)
+
+            diff2 = diff ** 2
+            diff2_masked = diff2[mask_include]
+            mse = float(diff2_masked.mean()) if diff2_masked.size > 0 else float("nan")
+            psnr = float(10.0 * np.log10(1.0 / (mse + 1e-12))) if np.isfinite(mse) else float("nan")
+
+            mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+
+            flow = result["flow"]
+            mag = np.linalg.norm(flow, axis=2)
+            mean_mag = float(mag.mean())
+
+            mag_img = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            mag_rgb = cv2.cvtColor(mag_img, cv2.COLOR_GRAY2RGB)
+
+            wandb.log({
+                "opticalflow/aligned": wandb.Image(aligned_rgb, caption=out_path.name),
+                "opticalflow/mask": wandb.Image(mask_rgb, caption=f"{out_path.stem}_mask"),
+                "opticalflow/flow_map": wandb.Image(mag_rgb, caption=f"{out_path.stem}_flow_mag"),
+                "opticalflow/mean_flow_magnitude": mean_mag,
+                "opticalflow/heatmap_diff": wandb.Image(heatmap_rgb, caption=f"{out_path.stem}_heatmap_diff"),
+                "opticalflow/mse_post_align": mse,
+                "opticalflow/psnr_post_align": psnr,
+            })
+
+        except Exception as e:
+            failed += 1
+            print(f"  [FAILED] {qwen_path.name}: {e}")
+
+    print("=== [Step Optical Flow] Done ===\n")
+
 
 def run_pipeline(cfg: dict, base_scene_dir: Path):
     """
@@ -286,8 +429,12 @@ def run_pipeline(cfg: dict, base_scene_dir: Path):
 
     if steps_cfg["vggt"] is True:
         run_step_vggt_colmap(cfg)
+
     if steps_cfg["qwen"] is True:
         run_step_qwen_clothing(cfg)
+
+    if steps_cfg["optical_flow"] is True:
+        run_step_optical_flow_alignment(cfg)
 
     print("[Pipeline] All defined steps completed.")
 
