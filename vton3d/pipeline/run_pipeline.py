@@ -185,7 +185,7 @@ def run_step_extract_frames(cfg: dict, base_scene_dir: Path):
             raise FileNotFoundError(f"No videos found in {videos_dir}")
         video_path = videos[0]
 
-    print("=== [Step 1] Extract Frames ===")
+    print("=== Step Extract Frames ===")
     print(f"  -> Video: {video_path}")
     print(f"  -> Base scene_dir: {base_scene_dir}")
     print(f"  -> Frames: {num_frames}")
@@ -221,7 +221,7 @@ def run_step_vggt_colmap(cfg: dict):
     - prepare VGGT arguments
     - call vggt_colmap.demo_fn()
     """
-    print("=== [Step 2] VGGT + COLMAP Reconstruction ===")
+    print("=== Step VGGT + COLMAP Reconstruction ===")
 
     vggt_args = build_vggt_args_from_config(cfg)
 
@@ -239,7 +239,7 @@ def run_step_qwen_clothing(cfg: dict):
     run the Qwen clothing edit batch and store outputs in <scene_dir>/qwen/images.
     Qwen uses input images from <scene_dir>/real/images.
     """
-    print("=== [Step 3] Qwen VTON edit ===")
+    print("=== Step Qwen VTON edit ===")
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"])
 
@@ -273,7 +273,7 @@ def run_step_optical_flow_alignment(cfg: dict):
     - tgt: real/images/<name>.png
     - output: overwrite qwen/images/<name>.png
     """
-    print("=== [Step 4] Masked Optical Flow alignment (Qwen -> Real) ===")
+    print("=== Step Masked Optical Flow alignment (Qwen -> Real) ===")
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"])
     real_dir = base_scene_dir / "real" / "images"
@@ -406,7 +406,7 @@ def run_step_optical_flow_alignment(cfg: dict):
 
 
 def run_step_background_segmentation(cfg: dict):
-    print("=== Human segmentation (SAM3) + white background + save masks ===")
+    print("=== Step Human segmentation (SAM3) ===")
 
     base_scene_dir = Path(cfg["paths"]["scene_dir"]).resolve()
     qwen_images_dir = base_scene_dir / "qwen" / "images"
@@ -447,9 +447,7 @@ def run_pipeline(cfg: dict, base_scene_dir: Path):
     """
     Main pipeline function.
 
-    - runs image preprocessing (normalize to PNG, resize)
-    - runs the VGGT reconstruction step
-    - runs the Qwen clothing edit step
+    - runs all steps defined in cfg['pipeline']['steps'] in order.
     """
     pipeline_cfg = cfg.get("pipeline", {})
     steps_cfg = pipeline_cfg.get("steps", None)

@@ -20,20 +20,20 @@ class BackgroundSegmentationConfig:
     threshold: float = 0.5
     mask_threshold: float = 0.5
 
-    pick: str = "union"  # "union" | "largest" | "best_score"
+    pick: str = "union"  # "union", "largest", "best_score"
     overwrite: bool = True
 
     device: Optional[str] = None
 
     # Saving masks
-    masks_dir_name: str = "human_masks"  # created under <scene_dir>/
-    mask_suffix: str = ""               # optional suffix like "_human"
+    masks_dir_name: str = "human_masks"
+    mask_suffix: str = ""
 
     # W&B logging
     wandb_log: bool = True
-    wandb_prefix: str = "bgseg"         # e.g. bgseg/<name>
+    wandb_prefix: str = "human_mask"
     overlay_alpha: float = 0.45
-    overlay_color_rgb: Tuple[int, int, int] = (255, 100, 180)  # just for debug overlay
+    overlay_color_rgb: Tuple[int, int, int] = (255, 100, 180)
 
 
 class BackgroundSegmentation:
@@ -129,7 +129,6 @@ class BackgroundSegmentation:
         color = np.array(self.cfg.overlay_color_rgb, dtype=np.float32)[None, None, :]
         alpha = float(self.cfg.overlay_alpha)
 
-        # alpha blend only where mask is True
         overlay[human_mask] = (1.0 - alpha) * overlay[human_mask] + alpha * color
         return np.clip(overlay, 0, 255).astype(np.uint8)
 
@@ -138,7 +137,6 @@ class BackgroundSegmentation:
         suffix = self.cfg.mask_suffix
         out_path = masks_dir / f"{stem}{suffix}.png"
 
-        # store as 0/255 grayscale
         mask_u8 = (mask_bool.astype(np.uint8) * 255)
         Image.fromarray(mask_u8, mode="L").save(out_path, format="PNG")
         return out_path
@@ -163,10 +161,8 @@ class BackgroundSegmentation:
         if human_mask is None:
             return {"path": str(img_path), "found": False, "saved": False}
 
-        # Save mask
         mask_path = self.save_mask_png(human_mask, masks_dir=masks_dir, stem=img_path.stem)
 
-        # Whiten and overwrite
         out_img = self.whiten_background(image, human_mask)
 
         if (not self.cfg.overwrite) and img_path.exists():
@@ -197,7 +193,6 @@ class BackgroundSegmentation:
                     f"{prefix}/best_score": best_score if best_score is not None else float("nan"),
                 })
             except Exception as e:
-                # don't fail pipeline due to debug logging
                 return {
                     "path": str(save_path),
                     "found": True,
