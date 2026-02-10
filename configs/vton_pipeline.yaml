@@ -4,17 +4,17 @@ paths:
 
 wandb:
   project: "vton_optical_flow"
-  run_name: "vton_florian_16"
+  run_name: "vton_florian_shirt"
   mode: "online"
 
 pipeline:
   steps:
     extract_frames: true
-    vggt: true
+    vggt: false
     qwen: true
-    optical_flow: true
-    background_segmentation: true
-    gsplat: true
+    optical_flow: false
+    background_segmentation: false
+    gsplat: false
   input_mirror: "copy"
 
 

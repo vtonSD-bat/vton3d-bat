@@ -5,7 +5,7 @@ SBATCH_SCRIPT="./run_pipeline.sh"
 BASE_YAML="configs/vton_pipeline.yaml"
 
 # Ordner vorbereiten
-mkdir -p configs/optical_flow_yamls logs
+mkdir -p configs/prompt_engi_yamls logs
 
 # Person -> Video
 declare -A VIDEO=(
