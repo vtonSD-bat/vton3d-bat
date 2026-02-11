@@ -180,6 +180,14 @@ class Config:
     # Weight for depth loss
     depth_lambda: float = 1e-2
 
+    # Depth supervision (dense maps)
+    depth_mode: Literal["none", "ordinal", "si_log"] = "ordinal"
+    depth_warmup: int = 2000        # steps with 0 depth weight
+    depth_ramp: int = 3000          # linear ramp to full weight
+    depth_num_pairs: int = 20000    # for ordinal (dense)
+    depth_margin: float = 0.0       # hinge margin for ordinal
+
+
     # Dump information to tensorboard every this steps
     tb_every: int = 100
     # Save training images to tensorboard
@@ -213,6 +221,63 @@ class Config:
             strategy.refine_every = int(strategy.refine_every * factor)
         else:
             assert_never(strategy)
+
+def ordinal_depth_loss_dense(pred, gt, mask, num_pairs=20000, margin=0.0):
+    """
+    pred, gt: [B, H, W] float
+    mask: [B, H, W] bool
+    """
+    B, H, W = pred.shape
+    losses = []
+    pred_f = pred.view(B, -1)
+    gt_f = gt.view(B, -1)
+    mask_f = mask.view(B, -1)
+
+    for b in range(B):
+        idx = torch.where(mask_f[b])[0]
+        if idx.numel() < 2:
+            continue
+
+        n = min(num_pairs, idx.numel())
+        i = idx[torch.randint(0, idx.numel(), (n,), device=pred.device)]
+        j = idx[torch.randint(0, idx.numel(), (n,), device=pred.device)]
+
+        gt_i = gt_f[b, i]
+        gt_j = gt_f[b, j]
+        pred_i = pred_f[b, i]
+        pred_j = pred_f[b, j]
+
+        s = torch.sign(gt_i - gt_j)     # +1 if i farther, -1 if i nearer
+        keep = s != 0
+        if keep.sum() == 0:
+            continue
+
+        s = s[keep]
+        pd = (pred_i - pred_j)[keep]
+
+        losses.append(torch.relu(margin - s * pd).mean())
+
+    if len(losses) == 0:
+        return pred.new_tensor(0.0)
+    return torch.stack(losses).mean()
+
+
+def scale_invariant_log_depth_loss(pred, gt, mask, eps=1e-6):
+    """
+    Eigen scale-invariant log depth loss.
+    pred: [B,H,W] or [B,H,W,1]
+    gt:   [B,H,W]
+    mask: [B,H,W] bool
+    """
+    if pred.dim() == 4:
+        pred = pred[..., 0]
+    pred = pred.clamp_min(eps)
+    gt = gt.clamp_min(eps)
+
+    d = (torch.log(pred) - torch.log(gt))[mask]
+    if d.numel() == 0:
+        return pred.new_tensor(0.0)
+    return (d * d).mean() - d.mean() * d.mean()
 
 
 def create_splats_with_optimizers(
@@ -631,8 +696,13 @@ class Runner:
             image_ids = data["image_id"].to(device)
             masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
             if cfg.depth_loss:
-                points = data["points"].to(device)  # [1, M, 2]
-                depths_gt = data["depths"].to(device)  # [1, M]
+                depth_gt = data["depth_map"].to(device)  # [B,H,W] float32
+                depth_mask = data.get("depth_mask", None)
+                if depth_mask is None:
+                    # fallback: supervise where gt is valid
+                    depth_mask = torch.isfinite(depth_gt) & (depth_gt > 0)
+                else:
+                    depth_mask = depth_mask.to(device).bool()  # [B,H,W]
 
             height, width = pixels.shape[1:3]
 
@@ -702,24 +772,37 @@ class Runner:
             loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
 
             if cfg.depth_loss:
-                # query depths from depth map
-                points = torch.stack(
-                    [
-                        points[:, :, 0] / (width - 1) * 2 - 1,
-                        points[:, :, 1] / (height - 1) * 2 - 1,
-                    ],
-                    dim=-1,
-                )  # normalize to [-1, 1]
-                grid = points.unsqueeze(2)  # [1, M, 1, 2]
-                depths = F.grid_sample(
-                    depths.permute(0, 3, 1, 2), grid, align_corners=True
-                )  # [1, 1, M, 1]
-                depths = depths.squeeze(3).squeeze(1)  # [1, M]
-                # calculate loss in disparity space
-                disp = torch.where(depths > 0.0, 1.0 / depths, torch.zeros_like(depths))
-                disp_gt = 1.0 / depths_gt  # [1, M]
-                depthloss = F.l1_loss(disp, disp_gt) * self.scene_scale
-                loss += depthloss * cfg.depth_lambda
+                # weight warmup/ramp
+                if step < cfg.depth_warmup:
+                    w_depth = 0.0
+                else:
+                    w_depth = min(1.0, (step - cfg.depth_warmup) / max(1, cfg.depth_ramp)) * cfg.depth_lambda
+
+                # combine masks: your existing masks (if present) + depth_mask
+                if masks is not None:
+                    mask = depth_mask & masks.bool()
+                else:
+                    mask = depth_mask
+
+                # predicted depth from renderer: [B,H,W,1] -> [B,H,W]
+                depth_pred = depths[..., 0]
+
+                # choose loss type
+                if cfg.depth_mode == "ordinal":
+                    depthloss = ordinal_depth_loss_dense(
+                        depth_pred, depth_gt, mask,
+                        num_pairs=cfg.depth_num_pairs,
+                        margin=cfg.depth_margin,
+                    )
+                elif cfg.depth_mode == "si_log":
+                    depthloss = scale_invariant_log_depth_loss(depth_pred, depth_gt, mask)
+                elif cfg.depth_mode == "none":
+                    depthloss = depth_pred.new_tensor(0.0)
+                else:
+                    raise ValueError(f"Unknown depth_mode: {cfg.depth_mode}")
+
+                loss += w_depth * depthloss
+
             if cfg.use_bilateral_grid:
                 tvloss = 10 * total_variation_loss(self.bil_grids.grids)
                 loss += tvloss

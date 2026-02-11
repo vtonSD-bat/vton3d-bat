@@ -357,6 +357,9 @@ class Dataset:
         split: str = "train",
         patch_size: Optional[int] = None,
         load_depths: bool = False,
+        depth_maps_dir: str = "depth_maps",
+        human_mask_dir: str = "human_mask",
+        human_mask_suffix: str = "human_masks",
     ):
         self.parser = parser
         self.split = split
@@ -367,6 +370,9 @@ class Dataset:
             self.indices = indices[indices % self.parser.test_every != 0]
         else:
             self.indices = indices[indices % self.parser.test_every == 0]
+        self.depth_maps_dir = depth_maps_dir
+        self.human_mask_dir = human_mask_dir
+        self.human_mask_suffix = human_mask_suffix
 
     def __len__(self):
         return len(self.indices)
@@ -390,12 +396,12 @@ class Dataset:
             x, y, w, h = self.parser.roi_undist_dict[camera_id]
             image = image[y : y + h, x : x + w]
 
+        x = y = 0
         if self.patch_size is not None:
-            # Random crop.
             h, w = image.shape[:2]
             x = np.random.randint(0, max(w - self.patch_size, 1))
             y = np.random.randint(0, max(h - self.patch_size, 1))
-            image = image[y : y + self.patch_size, x : x + self.patch_size]
+            image = image[y: y + self.patch_size, x: x + self.patch_size]
             K[0, 2] -= x
             K[1, 2] -= y
 
@@ -409,54 +415,100 @@ class Dataset:
             data["mask"] = torch.from_numpy(mask).bool()
 
         if self.load_depths:
-            # projected points to image plane to get depths
-            worldtocams = np.linalg.inv(camtoworlds)
             image_name = self.parser.image_names[index]
-            point_indices = self.parser.point_indices[image_name]
-            points_world = self.parser.points[point_indices]
-            points_cam = (worldtocams[:3, :3] @ points_world.T + worldtocams[:3, 3:4]).T
-            points_proj = (K @ points_cam.T).T
-            points = points_proj[:, :2] / points_proj[:, 2:3]  # (M, 2)
-            depths = points_cam[:, 2]  # (M,)
-            # filter out points outside the image
-            selector = (
-                (points[:, 0] >= 0)
-                & (points[:, 0] < image.shape[1])
-                & (points[:, 1] >= 0)
-                & (points[:, 1] < image.shape[0])
-                & (depths > 0)
+            base = os.path.splitext(os.path.basename(image_name))[0]
+
+            # --- depth map ---
+            depth_path = os.path.join(
+                self.parser.data_dir, self.depth_maps_dir, base + ".png"
             )
-            points = points[selector]
-            depths = depths[selector]
-            data["points"] = torch.from_numpy(points).float()
-            data["depths"] = torch.from_numpy(depths).float()
+            if not os.path.exists(depth_path):
+                raise FileNotFoundError(f"Depth map not found: {depth_path}")
+
+            depth = imageio.imread(depth_path)
+            if depth.ndim == 3:
+                depth = depth[..., 0]
+
+            if depth.dtype == np.uint16:
+                depth = depth.astype(np.float32) / 65535.0
+            elif depth.dtype == np.uint8:
+                depth = depth.astype(np.float32) / 255.0
+            else:
+                depth = depth.astype(np.float32)
+
+            # --- human mask ---
+            mask_path = os.path.join(
+                self.parser.data_dir,
+                self.human_mask_dir,
+                base + self.human_mask_suffix + ".png",  # <- basename + human_masks.png
+            )
+            if not os.path.exists(mask_path):
+                raise FileNotFoundError(f"Human mask not found: {mask_path}")
+
+            hmask = imageio.imread(mask_path)
+            if hmask.ndim == 3:
+                hmask = hmask[..., 0]
+            # binarize (handles 0/255 or probability-like)
+            hmask = (hmask >= 128)
+
+
+            # --- undistort/crop like RGB ---
+            if len(params) > 0:
+                mapx, mapy = self.parser.mapx_dict[camera_id], self.parser.mapy_dict[camera_id]
+                depth = cv2.remap(depth, mapx, mapy, cv2.INTER_NEAREST)
+                hmask = cv2.remap(hmask.astype(np.uint8), mapx, mapy, cv2.INTER_NEAREST).astype(bool)
+
+                x0, y0, w0, h0 = self.parser.roi_undist_dict[camera_id]
+                depth = depth[y0: y0 + h0, x0: x0 + w0]
+                hmask = hmask[y0: y0 + h0, x0: x0 + w0]
+
+            # --- same random crop as RGB ---
+            if self.patch_size is not None:
+                depth = depth[y: y + self.patch_size, x: x + self.patch_size]
+                hmask = hmask[y: y + self.patch_size, x: x + self.patch_size]
+
+            # --- resize to match training image (if needed) ---
+            if depth.shape[:2] != image.shape[:2]:
+                depth = cv2.resize(depth, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
+            if hmask.shape[:2] != image.shape[:2]:
+                hmask = cv2.resize(hmask.astype(np.uint8), (image.shape[1], image.shape[0]),
+                                   interpolation=cv2.INTER_NEAREST).astype(bool)
+
+            # valid depth pixels (optional, but good)
+            depth_valid = np.isfinite(depth) & (depth > 0)
+
+            # final supervision mask = human mask AND valid depth
+            depth_mask = hmask & depth_valid
+
+            data["depth_map"] = torch.from_numpy(depth).float()  # [H,W]
+            data["depth_mask"] = torch.from_numpy(depth_mask).bool()  # [H,W]
+            data["human_mask"] = torch.from_numpy(hmask).bool()  # optional debug
 
         return data
 
 
 if __name__ == "__main__":
     import argparse
-
+    from tqdm import tqdm
     import imageio.v2 as imageio
+    import numpy as np
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="data/360_v2/garden")
+    parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--factor", type=int, default=4)
     args = parser.parse_args()
 
-    # Parse COLMAP data.
-    parser = Parser(
-        data_dir=args.data_dir, factor=args.factor, normalize=True, test_every=8
-    )
-    dataset = Dataset(parser, split="train", load_depths=True)
-    print(f"Dataset: {len(dataset)} images.")
+    p = Parser(data_dir=args.data_dir, factor=args.factor, normalize=True, test_every=8)
+    ds = Dataset(p, split="train", load_depths=True)
+    print(f"Dataset: {len(ds)} images.")
 
-    writer = imageio.get_writer("results/points.mp4", fps=30)
-    for data in tqdm(dataset, desc="Plotting points"):
-        image = data["image"].numpy().astype(np.uint8)
-        points = data["points"].numpy()
-        depths = data["depths"].numpy()
-        for x, y in points:
-            cv2.circle(image, (int(x), int(y)), 2, (255, 0, 0), -1)
-        writer.append_data(image)
-    writer.close()
+    for k in range(min(5, len(ds))):
+        data = ds[k]
+        img = data["image"].numpy().astype(np.uint8)
+        depth = data["depth_map"].numpy()
+        dmask = data["depth_mask"].numpy()
+
+        print("image", img.shape, img.dtype)
+        print("depth", depth.shape, depth.dtype, "min/max", np.min(depth), np.max(depth))
+        print("mask", dmask.shape, dmask.dtype, "mask%:", dmask.mean())
+

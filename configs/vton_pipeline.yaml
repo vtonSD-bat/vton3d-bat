@@ -14,6 +14,7 @@ pipeline:
     qwen: true
     optical_flow: true
     background_segmentation: true
+    depth_loss: true
     gsplat: true
   input_mirror: "copy"
 
@@ -106,4 +107,25 @@ gsplat:
     - 3000
     - 3250
     - 3499
+  depth:
+    depth_lambda: 1.0e-2
+    depth_mode: "ordinal"       # "ordinal" | "si_log" | "none"
+    depth_warmup: 2000
+    depth_ramp: 3000
+    depth_num_pairs: 20000
+    depth_margin: 0.0
+
+    build_maps: true
+    overwrite_maps: false
+    save_mode: "u16"            # "u16" | "u8"
+    invert_depth: false
+
+    images_subdir: null         # null => auto: images or images_{data_factor}
+    depth_maps_subdir: "depth_maps"
+    human_mask_subdir: "human_masks"
+    human_mask_suffix: "human_masks"
+
+    sapiens:
+      repo_dir: "../Sapiens-Pytorch-Inference"
+      device: null
 
