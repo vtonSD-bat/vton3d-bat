@@ -189,7 +189,7 @@ class Config:
     depth_max_points: Optional[int] = None
 
     # Gradient depth loss (optional)
-    depth_grad_loss: bool = False
+    depth_grad_loss: bool = True
     depth_grad_lambda: float = 1e-2  # typ. 0.01–0.2
     depth_grad_mode: Literal["l1", "charbonnier"] = "l1"
     depth_grad_charb_eps: float = 1e-3  # nur für charbonnier
@@ -251,8 +251,8 @@ def depth_gradient_loss_log(
     Works even if Zr and Zg have different scales.
     """
     # compute log
-    lr = torch.log(Zr)
-    lg = torch.log(Zg)
+    lr = torch.log(torch.clamp(Zr, min=1e-6))
+    lg = torch.log(torch.clamp(Zg, min=1e-6))
 
     # grads
     gx_r, gy_r = _finite_diff_x(lr), _finite_diff_y(lr)
@@ -770,6 +770,8 @@ class Runner:
             loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
 
             if cfg.depth_loss:
+                gradloss = torch.zeros([], device=device)
+
                 # rendered expected depth: depths is [1,H,W,1]
                 Z_rend = depths  # [1, H, W, 1]
 
@@ -841,6 +843,14 @@ class Runner:
                 depthloss = dlog
                 loss = loss + (cfg.depth_lambda * w) * depthloss
 
+                if cfg.depth_grad_loss:
+                    gradloss = depth_gradient_loss_log(
+                        Zr=Zr, Zg=Zg, valid=valid,
+                        mode=cfg.depth_grad_mode,
+                        charb_eps=cfg.depth_grad_charb_eps,
+                    )
+                    loss = loss + (cfg.depth_grad_lambda * w) * gradloss
+
             if cfg.use_bilateral_grid:
                 tvloss = 10 * total_variation_loss(self.bil_grids.grids)
                 loss += tvloss
@@ -856,6 +866,9 @@ class Runner:
             desc = f"loss={loss.item():.3f}| " f"sh degree={sh_degree_to_use}| "
             if cfg.depth_loss:
                 desc += f"depth loss={depthloss.item():.6f}| "
+                if cfg.depth_grad_loss:
+                    desc += f"depth grad={gradloss.item():.6f}| "
+
             if cfg.pose_opt and cfg.pose_noise:
                 # monitor the pose error if we inject noise
                 pose_err = F.l1_loss(camtoworlds_gt, camtoworlds)
@@ -880,6 +893,8 @@ class Runner:
                 self.writer.add_scalar("train/mem", mem, step)
                 if cfg.depth_loss:
                     self.writer.add_scalar("train/depthloss", depthloss.item(), step)
+                if cfg.depth_grad_loss:
+                    self.writer.add_scalar("train/depth_gradloss", gradloss.item(), step)
                 if cfg.use_bilateral_grid:
                     self.writer.add_scalar("train/tvloss", tvloss.item(), step)
                 if cfg.tb_save_image:
