@@ -188,6 +188,12 @@ class Config:
     depth_ramp: int = 4000
     depth_max_points: Optional[int] = None
 
+    # Gradient depth loss (optional)
+    depth_grad_loss: bool = False
+    depth_grad_lambda: float = 1e-2  # typ. 0.01–0.2
+    depth_grad_mode: Literal["l1", "charbonnier"] = "l1"
+    depth_grad_charb_eps: float = 1e-3  # nur für charbonnier
+
     # Dump information to tensorboard every this steps
     tb_every: int = 100
     # Save training images to tensorboard
@@ -221,6 +227,55 @@ class Config:
             strategy.refine_every = int(strategy.refine_every * factor)
         else:
             assert_never(strategy)
+
+
+def _finite_diff_x(t: torch.Tensor) -> torch.Tensor:
+    # t: [B,H,W,1]
+    return t[:, :, 1:, :] - t[:, :, :-1, :]
+
+def _finite_diff_y(t: torch.Tensor) -> torch.Tensor:
+    return t[:, 1:, :, :] - t[:, :-1, :, :]
+
+def _charbonnier(x: torch.Tensor, eps: float = 1e-3) -> torch.Tensor:
+    return torch.sqrt(x * x + eps * eps)
+
+def depth_gradient_loss_log(
+    Zr: torch.Tensor,         # [B,H,W,1]
+    Zg: torch.Tensor,         # [B,H,W,1]
+    valid: torch.Tensor,      # [B,H,W,1] bool
+    mode: str = "l1",
+    charb_eps: float = 1e-3,
+) -> torch.Tensor:
+    """
+    Gradient loss on log-depth: compares ∂x logZ and ∂y logZ.
+    Works even if Zr and Zg have different scales.
+    """
+    # compute log
+    lr = torch.log(Zr)
+    lg = torch.log(Zg)
+
+    # grads
+    gx_r, gy_r = _finite_diff_x(lr), _finite_diff_y(lr)
+    gx_g, gy_g = _finite_diff_x(lg), _finite_diff_y(lg)
+
+    # valid mask for gradients: both pixels involved must be valid
+    vx = valid[:, :, 1:, :] & valid[:, :, :-1, :]
+    vy = valid[:, 1:, :, :] & valid[:, :-1, :, :]
+
+    dx = gx_r - gx_g
+    dy = gy_r - gy_g
+
+    if mode == "charbonnier":
+        dx = _charbonnier(dx, eps=charb_eps)
+        dy = _charbonnier(dy, eps=charb_eps)
+    else:  # "l1"
+        dx = dx.abs()
+        dy = dy.abs()
+
+    # masked mean
+    loss_x = dx[vx].mean() if vx.any() else torch.zeros([], device=Zr.device)
+    loss_y = dy[vy].mean() if vy.any() else torch.zeros([], device=Zr.device)
+    return loss_x + loss_y
 
 
 def create_splats_with_optimizers(
@@ -760,12 +815,18 @@ class Runner:
                         if idx.numel() > cfg.depth_max_points:
                             perm = torch.randperm(idx.numel(), device=device)[: cfg.depth_max_points]
                             idx = idx[perm]
-                        dlog = (torch.log(Zr.view(-1)[idx] + eps) - torch.log(Zg.view(-1)[idx] + eps)).abs().mean()
+                        d = torch.log(Zr.view(-1)[idx] + eps) - torch.log(Zg.view(-1)[idx] + eps)
+                        d = d - d.mean()
+                        dlog = d.abs().mean()
+
                     else:
                         dlog = torch.zeros([], device=device)
                 else:
                     if valid.any():
-                        dlog = (torch.log(Zr[valid] + eps) - torch.log(Zg[valid] + eps)).abs().mean()
+                        d = torch.log(Zr[valid] + eps) - torch.log(Zg[valid] + eps)
+                        d = d - d.mean()
+                        dlog = d.abs().mean()
+
                     else:
                         dlog = torch.zeros([], device=device)
 
