@@ -62,12 +62,11 @@ def run_step_gsplat(cfg: dict) -> None:
 
     depth_cfg = (gs_cfg.get("depth", {}) or {})
 
-    depth_lambda = depth_cfg.get("depth_lambda", 1e-2)
-    depth_eps = depth_cfg.get("depth_eps", 1e-6)
+    depth_lambda = depth_cfg.get("depth_lambda", 0.01)
+    depth_grad_lambda = depth_cfg.get("depth_grad_lambda", 0.05)
+    depth_grad_mode = depth_cfg.get("depth_grad_mode", "l1")
+    depth_grad_charb_eps = depth_cfg.get("depth_grad_charb_eps", 1e-3)
     depth_zmin = depth_cfg.get("depth_zmin", 1e-3)
-    depth_warmup = depth_cfg.get("depth_warmup", 1500)
-    depth_ramp = depth_cfg.get("depth_ramp", 4000)
-    depth_max_points = depth_cfg.get("depth_max_points", None)
 
     # Erwartet: cfg["paths"]["scene_dir"]
     project_root = Path(__file__).resolve().parents[2]
@@ -111,19 +110,15 @@ def run_step_gsplat(cfg: dict) -> None:
             "--depth_dir", str(depth_dir),
             "--depth_mask_dir", str(depth_mask_dir),
             "--depth_lambda", str(depth_lambda),
-            "--depth_eps", str(depth_eps),
+            "--depth_grad_lambda", str(depth_grad_lambda),
+            "--depth_grad_mode", str(depth_grad_mode),
+            "--depth_grad_charb_eps", str(depth_grad_charb_eps),
             "--depth_zmin", str(depth_zmin),
-            "--depth_warmup", str(depth_warmup),
-            "--depth_ramp", str(depth_ramp),
         ]
-        if depth_max_points is not None:
-            cmd += ["--depth_max_points", str(depth_max_points)]
 
         print("  -> Depth loss ENABLED")
         print(f"     depth_dir: {depth_dir}")
         print(f"     depth_mask_dir: {depth_mask_dir}")
-    else:
-        print("  -> Depth loss DISABLED")
 
     print(f"  -> gsplat repo: {gsplat_repo}")
     print(f"  -> running: {' '.join(cmd)}")

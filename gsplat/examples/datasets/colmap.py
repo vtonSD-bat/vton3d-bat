@@ -84,11 +84,11 @@ class Parser:
         imdata = manager.images
         w2c_mats = []
         camera_ids = []
-        Ks_dict: Dict[int, np.ndarray] = {}
-        params_dict: Dict[int, np.ndarray] = {}
-        imsize_dict: Dict[int, tuple] = {}  # width, height
-        mask_dict: Dict[int, Optional[np.ndarray]] = {}
-        camtype_dict: Dict[int, str] = {}  # <-- FIX: pro camera_id
+        Ks_dict = dict()
+        params_dict = dict()
+        imsize_dict = dict()  # width, height
+        mask_dict = dict()
+        camtype_dict = dict()  # per camera id
         bottom = np.array([0, 0, 0, 1]).reshape(1, 4)
 
         last_type = None
@@ -99,18 +99,15 @@ class Parser:
             w2c = np.concatenate([np.concatenate([rot, trans], 1), bottom], axis=0)
             w2c_mats.append(w2c)
 
-            # support different camera intrinsics
             camera_id = im.camera_id
             camera_ids.append(camera_id)
 
-            # camera intrinsics
             cam = manager.cameras[camera_id]
             fx, fy, cx, cy = cam.fx, cam.fy, cam.cx, cam.cy
             K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
             K[:2, :] /= factor
             Ks_dict[camera_id] = K
 
-            # Get distortion parameters.
             type_ = cam.camera_type
             last_type = type_
 
@@ -135,9 +132,9 @@ class Parser:
             else:
                 raise ValueError(f"Unknown camera type: {type_}")
 
-            assert camtype in ("perspective", "fisheye"), (
-                f"Only perspective and fisheye cameras are supported, got {type_}"
-            )
+            assert (
+                camtype == "perspective" or camtype == "fisheye"
+            ), f"Only perspective and fisheye cameras are supported, got {type_}"
 
             camtype_dict[camera_id] = camtype
             params_dict[camera_id] = params
@@ -154,20 +151,15 @@ class Parser:
             print("Warning: COLMAP Camera is not PINHOLE. Images have distortion.")
 
         w2c_mats = np.stack(w2c_mats, axis=0)
-
-        # Convert extrinsics to camera-to-world.
         camtoworlds = np.linalg.inv(w2c_mats)
 
-        # Image names from COLMAP.
         image_names = [imdata[k].name for k in imdata]
 
-        # Sort by filename.
         inds = np.argsort(image_names)
         image_names = [image_names[i] for i in inds]
         camtoworlds = camtoworlds[inds]
         camera_ids = [camera_ids[i] for i in inds]
 
-        # Load extended metadata.
         self.extconf = {
             "spiral_radius_scale": 1.0,
             "no_factor_suffix": False,
@@ -177,13 +169,11 @@ class Parser:
             with open(extconf_file) as f:
                 self.extconf.update(json.load(f))
 
-        # Load bounds if possible.
         self.bounds = np.array([0.01, 1.0])
         posefile = os.path.join(data_dir, "poses_bounds.npy")
         if os.path.exists(posefile):
             self.bounds = np.load(posefile)[:, -2:]
 
-        # Load images.
         if factor > 1 and not self.extconf["no_factor_suffix"]:
             image_dir_suffix = f"_{factor}"
         else:
@@ -232,7 +222,6 @@ class Parser:
 
             transform = T2 @ T1
 
-            # Fix for upside down.
             if np.median(points[:, 2]) > np.mean(points[:, 2]):
                 T3 = np.array(
                     [
@@ -256,14 +245,14 @@ class Parser:
         self.params_dict = params_dict
         self.imsize_dict = imsize_dict
         self.mask_dict = mask_dict
-        self.camtype_dict = camtype_dict  # <-- FIX: speichern
+        self.camtype_dict = camtype_dict
         self.points = points
         self.points_err = points_err
         self.points_rgb = points_rgb
         self.point_indices = point_indices
         self.transform = transform
 
-        # Check actual image size vs COLMAP intrinsics.
+        # load one image to check the size. (tanksandtemples intrinsics can be off)
         actual_image = imageio.imread(self.image_paths[0])[..., :3]
         actual_height, actual_width = actual_image.shape[:2]
         colmap_width, colmap_height = self.imsize_dict[self.camera_ids[0]]
@@ -276,7 +265,7 @@ class Parser:
             width, height = self.imsize_dict[camera_id]
             self.imsize_dict[camera_id] = (int(width * s_width), int(height * s_height))
 
-        # undistortion maps
+        # undistortion
         self.mapx_dict = dict()
         self.mapy_dict = dict()
         self.roi_undist_dict = dict()
@@ -284,10 +273,11 @@ class Parser:
             params = self.params_dict[camera_id]
             if len(params) == 0:
                 continue  # no distortion
+            assert camera_id in self.Ks_dict, f"Missing K for camera {camera_id}"
 
             K = self.Ks_dict[camera_id]
             width, height = self.imsize_dict[camera_id]
-            camtype = self.camtype_dict[camera_id]  # <-- FIX: pro Kamera
+            camtype = self.camtype_dict[camera_id]
 
             if camtype == "perspective":
                 K_undist, roi_undist = cv2.getOptimalNewCameraMatrix(
@@ -343,7 +333,6 @@ class Parser:
             self.imsize_dict[camera_id] = (roi_undist[2], roi_undist[3])
             self.mask_dict[camera_id] = mask
 
-        # size of the scene measured by cameras
         camera_locations = camtoworlds[:, :3, 3]
         scene_center = np.mean(camera_locations, axis=0)
         dists = np.linalg.norm(camera_locations - scene_center, axis=1)
@@ -358,9 +347,9 @@ class Dataset:
         parser: Parser,
         split: str = "train",
         patch_size: Optional[int] = None,
-        load_depths: bool = False,
-        depth_dir: Optional[str] = None,
-        depth_mask_dir: Optional[str] = None,
+        load_depths: bool = False,              # <- sparse SfM points+depths (wie base)
+        depth_dir: Optional[str] = None,        # <- dense depth_map (.npy)
+        depth_mask_dir: Optional[str] = None,   # <- optional mask (.png)
     ):
         self.parser = parser
         self.split = split
@@ -385,74 +374,86 @@ class Dataset:
         K = self.parser.Ks_dict[camera_id].copy()  # undistorted K
         params = self.parser.params_dict[camera_id]
         camtoworlds = self.parser.camtoworlds[index]
-        mask = self.parser.mask_dict[camera_id]  # ROI mask (fisheye) or None
+        mask = self.parser.mask_dict[camera_id]
 
-        # Keep crop coords to reuse for depth and depth-mask
         crop_x = None
         crop_y = None
 
-        # Undistort/crop image (and mask) if needed
         if len(params) > 0:
             mapx, mapy = self.parser.mapx_dict[camera_id], self.parser.mapy_dict[camera_id]
             x0, y0, w0, h0 = self.parser.roi_undist_dict[camera_id]
-
             image = cv2.remap(image, mapx, mapy, cv2.INTER_LINEAR)
-            image = image[y0:y0 + h0, x0:x0 + w0]
+            image = image[y0 : y0 + h0, x0 : x0 + w0]
 
             if mask is not None:
-                # mask is already ROI for fisheye in parser; for safety we still crop if it's full-size
-                # If it's already ROI-sized, this slice is a no-op only if indices match; hence check shape:
+                # mask is already ROI-sized in parser for fisheye; slice only if needed
                 if mask.shape[0] >= (y0 + h0) and mask.shape[1] >= (x0 + w0):
-                    mask = mask[y0:y0 + h0, x0:x0 + w0]
+                    mask = mask[y0 : y0 + h0, x0 : x0 + w0]
 
-        # Random crop (same for image/mask/depth)
         if self.patch_size is not None:
             h, w = image.shape[:2]
             crop_x = int(np.random.randint(0, max(w - self.patch_size, 1)))
             crop_y = int(np.random.randint(0, max(h - self.patch_size, 1)))
-
-            image = image[crop_y:crop_y + self.patch_size, crop_x:crop_x + self.patch_size]
+            image = image[crop_y : crop_y + self.patch_size, crop_x : crop_x + self.patch_size]
             K[0, 2] -= crop_x
             K[1, 2] -= crop_y
-
             if mask is not None:
-                mask = mask[crop_y:crop_y + self.patch_size, crop_x:crop_x + self.patch_size]
+                mask = mask[crop_y : crop_y + self.patch_size, crop_x : crop_x + self.patch_size]
 
         data: Dict[str, Any] = {
             "K": torch.from_numpy(K).float(),
             "camtoworld": torch.from_numpy(camtoworlds).float(),
             "image": torch.from_numpy(image).float(),
-            "image_id": item,  # index in dataset
+            "image_id": item,
         }
         if mask is not None:
             data["mask"] = torch.from_numpy(mask).bool()
 
-        # Depth loading
+        # --- sparse SfM depth (BASE: points+depths) ---
         if self.load_depths:
-            assert self.depth_dir is not None, "depth_loss=True but depth_dir is None"
-
+            worldtocams = np.linalg.inv(camtoworlds)
             image_name = self.parser.image_names[index]
-            stem = os.path.splitext(image_name)[0]  # relative path without extension
+            point_indices = self.parser.point_indices[image_name]
+            points_world = self.parser.points[point_indices]
+            points_cam = (worldtocams[:3, :3] @ points_world.T + worldtocams[:3, 3:4]).T
+            points_proj = (K @ points_cam.T).T
+            points = points_proj[:, :2] / points_proj[:, 2:3]
+            depths = points_cam[:, 2]
 
+            selector = (
+                (points[:, 0] >= 0)
+                & (points[:, 0] < image.shape[1])
+                & (points[:, 1] >= 0)
+                & (points[:, 1] < image.shape[0])
+                & (depths > 0)
+            )
+            points = points[selector]
+            depths = depths[selector]
+            data["points"] = torch.from_numpy(points).float()
+            data["depths"] = torch.from_numpy(depths).float()
+
+        # --- dense depth map (+ optional mask) for gradient depth loss ---
+        if self.depth_dir is not None:
+            image_name = self.parser.image_names[index]
+            stem = os.path.splitext(image_name)[0]  # keeps relative subdirs
             depth_path = os.path.join(self.depth_dir, stem + ".npy")
             if not os.path.isfile(depth_path):
                 raise FileNotFoundError(f"Depth file not found: {depth_path}")
 
-            Z = np.load(depth_path).astype(np.float32)  # [H, W]
+            Z = np.load(depth_path).astype(np.float32)  # [H,W]
 
             if len(params) > 0:
                 mapx, mapy = self.parser.mapx_dict[camera_id], self.parser.mapy_dict[camera_id]
                 x0, y0, w0, h0 = self.parser.roi_undist_dict[camera_id]
                 Z = cv2.remap(Z, mapx, mapy, cv2.INTER_NEAREST)
-                Z = Z[y0:y0 + h0, x0:x0 + w0]
+                Z = Z[y0 : y0 + h0, x0 : x0 + w0]
 
             if self.patch_size is not None:
                 assert crop_x is not None and crop_y is not None
-                Z = Z[crop_y:crop_y + self.patch_size, crop_x:crop_x + self.patch_size]
+                Z = Z[crop_y : crop_y + self.patch_size, crop_x : crop_x + self.patch_size]
 
             data["depth_map"] = torch.from_numpy(Z).float()
 
-            # Optional person mask for depth
             if self.depth_mask_dir is not None:
                 mask_path = os.path.join(self.depth_mask_dir, stem + ".png")
                 if not os.path.isfile(mask_path):
@@ -461,18 +462,17 @@ class Dataset:
                 M = imageio.imread(mask_path)
                 if M.ndim == 3:
                     M = M[..., 0]
-                M = (M > 127).astype(np.uint8)  # 0/1
+                M = (M > 127).astype(np.uint8)
 
                 if len(params) > 0:
-                    # IMPORTANT: fetch locally (robust)
                     mapx, mapy = self.parser.mapx_dict[camera_id], self.parser.mapy_dict[camera_id]
                     x0, y0, w0, h0 = self.parser.roi_undist_dict[camera_id]
                     M = cv2.remap(M, mapx, mapy, cv2.INTER_NEAREST)
-                    M = M[y0:y0 + h0, x0:x0 + w0]
+                    M = M[y0 : y0 + h0, x0 : x0 + w0]
 
                 if self.patch_size is not None:
                     assert crop_x is not None and crop_y is not None
-                    M = M[crop_y:crop_y + self.patch_size, crop_x:crop_x + self.patch_size]
+                    M = M[crop_y : crop_y + self.patch_size, crop_x : crop_x + self.patch_size]
 
                 data["depth_mask"] = torch.from_numpy(M.astype(np.bool_))
 

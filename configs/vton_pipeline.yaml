@@ -115,8 +115,7 @@ gsplat:
 
   depth:
     depth_lambda: 0.01
-    depth_eps: 1.0e-6
-    depth_zmin: 1.0e-3
-    depth_warmup: 1500
-    depth_ramp: 4000
-    depth_max_points: null
+    depth_grad_lambda: 0.05
+    depth_grad_mode: "l1"
+    depth_grad_charb_eps: 1e-3
+    depth_zmin: 1e-3
