@@ -776,7 +776,12 @@ class Runner:
                     isEdge1=False,
                 ).to(device)  # [H,W] non-edge=1
 
-                canny_nonedge = canny_nonedge[None, None]  # [1,1,H,W]
+                if canny_nonedge.ndim == 2:
+                    canny_nonedge = canny_nonedge[None, None]  # [1,1,H,W]
+                elif canny_nonedge.ndim == 4:
+                    pass
+                else:
+                    raise ValueError(canny_nonedge.shape)
 
                 reg_mask = valid * canny_nonedge
                 near = nearMean_map(D_gs, reg_mask)

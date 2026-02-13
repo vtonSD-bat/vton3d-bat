@@ -29,12 +29,45 @@ with torch.no_grad():
     conv = conv.cuda()
 
 
-def nearMean_map(array, mask, kernelsize=3):
-    """ array: (H,W) / mask: (H,W) """
-    cnt_map = torch.ones_like(array)
+import torch
+import torch.nn.functional as F
 
-    nearMean_map = conv((array * mask)[None, None])
-    cnt_map = conv((cnt_map * mask)[None, None])
-    nearMean_map = (nearMean_map / (cnt_map + 1e-8)).squeeze()
+def nearMean_map(array: torch.Tensor, mask: torch.Tensor, ksize: int = 9):
+    """
+    array: [H,W] or [B,1,H,W]
+    mask:  [H,W] or [B,1,H,W]  (0/1)
+    returns: same shape as array
+    """
 
-    return nearMean_map
+    # bring to [B,1,H,W]
+    if array.ndim == 2:
+        array4 = array[None, None]
+    elif array.ndim == 4:
+        array4 = array
+    else:
+        raise ValueError(f"array must be 2D or 4D, got {array.shape}")
+
+    if mask.ndim == 2:
+        mask4 = mask[None, None]
+    elif mask.ndim == 4:
+        mask4 = mask
+    else:
+        raise ValueError(f"mask must be 2D or 4D, got {mask.shape}")
+
+    # make sure float
+    array4 = array4.float()
+    mask4 = mask4.float()
+
+    # box filter via conv2d (no params)
+    pad = ksize // 2
+    weight = torch.ones((1, 1, ksize, ksize), device=array4.device, dtype=array4.dtype)
+
+    num = F.conv2d(array4 * mask4, weight, padding=pad)
+    den = F.conv2d(mask4, weight, padding=pad).clamp_min(1e-6)
+
+    out = num / den
+
+    # return in same ndim as input
+    if array.ndim == 2:
+        return out[0, 0]
+    return out
