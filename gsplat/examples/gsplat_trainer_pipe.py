@@ -769,14 +769,15 @@ class Runner:
                 # image2canny expects torch image [H,W,3] in [0,1]
                 img_t = pixels[0]  # already float in [0,1], shape [H,W,3]
 
-                canny = image2canny(
+                canny_nonedge = image2canny(
                     img_t,
                     thres1=cfg.canny_low,
                     thres2=cfg.canny_high,
                     isEdge1=False,
-                ).to(device)
+                ).to(device)  # [H,W] non-edge=1
 
                 canny_nonedge = canny_nonedge[None, None]  # [1,1,H,W]
+
                 reg_mask = valid * canny_nonedge
                 near = nearMean_map(D_gs, reg_mask)
                 depth_reg = (((near - D_gs) ** 2) * reg_mask).sum() / (reg_mask.sum() + 1e-6)
