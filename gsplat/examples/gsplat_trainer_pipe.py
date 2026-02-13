@@ -30,7 +30,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from typing_extensions import Literal, assert_never
-from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed
+from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed, knn_indices
 
 from gsplat import export_splats
 from gsplat.compression import PngCompression
@@ -194,6 +194,14 @@ class Config:
     depth_grad_mode: Literal["l1", "charbonnier"] = "l1"
     depth_grad_charb_eps: float = 1e-3  # nur für charbonnier
 
+    surface_loss: bool = False
+    surface_lambda: float = 5e-3  # typ: 1e-3 .. 5e-2
+    surface_k: int = 8  # kNN neighbors
+    surface_warmup: int = 100  # start after this many steps
+    surface_ramp: int = 1250  # ramp to full weight over this many steps
+    surface_every: int = 10  # recompute neighbors every N steps (perf)
+    surface_max_points: Optional[int] = 20000
+
     # Dump information to tensorboard every this steps
     tb_every: int = 100
     # Save training images to tensorboard
@@ -276,6 +284,28 @@ def depth_gradient_loss_log(
     loss_x = dx[vx].mean() if vx.any() else torch.zeros([], device=Zr.device)
     loss_y = dy[vy].mean() if vy.any() else torch.zeros([], device=Zr.device)
     return loss_x + loss_y
+
+
+def surface_consistency_loss(
+    means: torch.Tensor,        # [N,3]
+    covs: torch.Tensor,         # [N,3,3]
+    knn_idx: torch.Tensor,      # [N,k]
+    mode: str = "l2",
+) -> torch.Tensor:
+    """
+    Penalize neighbor displacement along local normal (smallest eigenvector of cov).
+    """
+    evals, evecs = torch.linalg.eigh(covs)      # evecs: [N,3,3] ascending evals
+    n = evecs[..., 0]                           # [N,3] smallest eigenvector
+
+    nbr = means[knn_idx]                        # [N,k,3]
+    diff = nbr - means[:, None, :]              # [N,k,3]
+    plane_err = (diff * n[:, None, :]).sum(dim=-1)  # [N,k]
+
+    if mode == "l1":
+        return plane_err.abs().mean()
+    return (plane_err ** 2).mean()
+
 
 
 def create_splats_with_optimizers(
@@ -378,6 +408,10 @@ class Runner:
         self, local_rank: int, world_rank, world_size: int, cfg: Config
     ) -> None:
         set_random_seed(42 + local_rank)
+
+        self._surface_knn_idx_cache = None
+        self._surface_subset_idx_cache = None
+        self._surface_cache_N = 0
 
         self.cfg = cfg
         self.world_rank = world_rank
@@ -758,6 +792,12 @@ class Runner:
             )
 
             # loss
+
+            depthloss = torch.zeros([], device=device)
+            gradloss = torch.zeros([], device=device)
+            surf_loss = torch.zeros([], device=device)
+            w_surf = 0.0
+
             l1loss = F.l1_loss(colors, pixels)
 
             # Für SSIM: torchmetrics verwenden statt fused_ssim
@@ -861,6 +901,66 @@ class Runner:
             if cfg.scale_reg > 0.0:
                 loss += cfg.scale_reg * torch.exp(self.splats["scales"]).mean()
 
+            if cfg.surface_loss:
+                # warmup + ramp weight
+                if step < cfg.surface_warmup:
+                    w = 0.0
+                elif cfg.surface_ramp > 0:
+                    w = min(1.0, float(step - cfg.surface_warmup) / float(cfg.surface_ramp))
+                else:
+                    w = 1.0
+                w_surf = float(cfg.surface_lambda) * float(w)
+
+                if w_surf > 0.0:
+                    Nfull = self.splats["means"].shape[0]
+
+                    # decide whether to refresh subset+knn
+                    need_refresh = (
+                            self._surface_knn_idx_cache is None
+                            or self._surface_subset_idx_cache is None
+                            or self._surface_cache_N == 0
+                            or (cfg.surface_every > 0 and step % cfg.surface_every == 0)
+                    )
+
+                    # choose a fixed subset that stays valid until next refresh
+                    if cfg.surface_max_points is not None and Nfull > cfg.surface_max_points:
+                        if need_refresh:
+                            self._surface_subset_idx_cache = torch.randperm(
+                                Nfull, device=device
+                            )[: cfg.surface_max_points]
+                        subset_idx = self._surface_subset_idx_cache
+                    else:
+                        subset_idx = slice(None)
+
+                    means_s = self.splats["means"][subset_idx]  # [M,3]
+                    quats_s = self.splats["quats"][subset_idx]  # [M,4]
+                    scales_s = torch.exp(self.splats["scales"][subset_idx])  # [M,3]
+
+                    # recompute KNN on THIS subset when refreshed
+                    if need_refresh:
+                        self._surface_knn_idx_cache = knn_indices(means_s.detach(), cfg.surface_k)
+                        self._surface_cache_N = means_s.shape[0]
+
+                    # Build covariance Σ = R * diag(s^2) * R^T  for THIS subset only
+                    q = F.normalize(quats_s, dim=-1)
+                    qw, qx, qy, qz = q[:, 0], q[:, 1], q[:, 2], q[:, 3]  # assumes (w,x,y,z)
+
+                    R = torch.stack([
+                        1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw),
+                        2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw),
+                        2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy),
+                    ], dim=-1).view(-1, 3, 3)
+
+                    S2 = torch.diag_embed(scales_s * scales_s)  # [M,3,3]
+                    covs_s = R @ S2 @ R.transpose(-1, -2)  # [M,3,3]
+
+                    surf_loss = surface_consistency_loss(
+                        means_s, covs_s, self._surface_knn_idx_cache, mode="l2"
+                    )
+
+                    loss = loss + (w_surf * surf_loss)
+
+
             loss.backward()
 
             desc = f"loss={loss.item():.3f}| " f"sh degree={sh_degree_to_use}| "
@@ -909,6 +1009,13 @@ class Runner:
                     "gsplat_train/ssimloss": float(ssimloss.item()),
                     "gsplat_train/num_GS": len(self.splats["means"]),
                     "gsplat_train/mem_gb": float(mem),
+                    #depth loss
+                    "gsplat_train/depth_loss": float(depthloss.item()),
+                    "gsplat_train/depth_grad_loss": float(gradloss.item()),
+
+                    # surface loss
+                    "gsplat_train/surface_loss": float(surf_loss.item()),
+                    "gsplat_train/surface_weight": float(w_surf),
                 }
 
                 wandb.log(log_dict, step=step)
