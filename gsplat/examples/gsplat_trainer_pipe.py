@@ -41,9 +41,6 @@ from gsplat_viewer import GsplatViewer, GsplatRenderTabState
 from nerfview import CameraState, RenderTabState, apply_float_colormap
 
 
-# -----------------------------
-# Depth gradient loss helpers
-# -----------------------------
 def _finite_diff_x(t: torch.Tensor) -> torch.Tensor:
     # t: [B,H,W,1]
     return t[:, :, 1:, :] - t[:, :, :-1, :]
@@ -327,7 +324,6 @@ class Runner:
         )
 
         # Dataset:
-        # - load_depths = sparse SfM points+depths (base)
         # - depth_dir/depth_mask_dir = dense depth map for gradient loss
         self.trainset = Dataset(
             self.parser,
@@ -591,7 +587,6 @@ class Runner:
             image_ids = data["image_id"].to(device)
             masks = data["mask"].to(device) if "mask" in data else None
 
-            # sparse SfM supervision
             if cfg.depth_loss:
                 points = data["points"].to(device)      # [B,M,2]
                 depths_gt = data["depths"].to(device)   # [B,M]
@@ -669,7 +664,6 @@ class Runner:
             depthloss = torch.zeros([], device=device)
             gradloss = torch.zeros([], device=device)
 
-            # --- sparse SfM depth loss (unchanged from base) ---
             if cfg.depth_loss:
                 assert depths is not None, "Need rendered depths for depth_loss."
                 pts = torch.stack(
@@ -688,7 +682,6 @@ class Runner:
                 depthloss = F.l1_loss(disp, disp_gt) * self.scene_scale
                 loss += depthloss * cfg.depth_lambda
 
-            # --- additional dense depth gradient loss ---
             if cfg.depth_loss:
                 assert depths is not None, "Need rendered depths for depth_grad_loss."
                 zmin = float(cfg.depth_zmin)

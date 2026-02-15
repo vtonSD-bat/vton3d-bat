@@ -409,7 +409,6 @@ class Dataset:
         if mask is not None:
             data["mask"] = torch.from_numpy(mask).bool()
 
-        # --- sparse SfM depth (BASE: points+depths) ---
         if self.load_depths:
             worldtocams = np.linalg.inv(camtoworlds)
             image_name = self.parser.image_names[index]
