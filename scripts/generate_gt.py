@@ -119,21 +119,21 @@ def diff_heatmap_u8_masked(orig_bgr: np.ndarray, out_bgr: np.ndarray, mask_ignor
 
 
 # -----------------------------
-# Post-processing: masked flow align + composite
+# Post-processing: masked flow align + (optional) composite
 # -----------------------------
-def composite_aligned_qwen_into_original(
+def align_qwen_to_original(
     flow: MaskedOpticalFlow,
     original_resized_path: Path,
     qwen_resized_path: Path,
     out_path: Path,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    final_mode: str = "composite",  # "composite" | "aligned_only"
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     - Align qwen -> original using MaskedOpticalFlow (ECC+DIS) ignoring clothing union mask
-    - Final composite:
-        outside mask: original
-        inside mask: aligned_qwen
+    - If final_mode == "aligned_only": final = aligned_qwen
+      else: final = composite(outside mask = original, inside mask = aligned_qwen)
     Returns:
-        (orig_bgr, out_bgr, mask_ignore_u8)
+        (orig_bgr, final_bgr, mask_ignore_u8, aligned_bgr)
     """
     import cv2
 
@@ -158,13 +158,16 @@ def composite_aligned_qwen_into_original(
         aligned = cv2.resize(aligned, (orig.shape[1], orig.shape[0]), interpolation=cv2.INTER_LINEAR)
 
     mask_ignore = info["mask_ignore"]  # 255 in clothing union (dilated), 0 elsewhere
-    mask = (mask_ignore > 0)
 
-    out = orig.copy()
-    out[mask] = aligned[mask]
+    if final_mode == "aligned_only":
+        final = aligned
+    else:
+        mask = (mask_ignore > 0)
+        final = orig.copy()
+        final[mask] = aligned[mask]
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    ok = cv2.imwrite(str(out_path), out)
+    ok = cv2.imwrite(str(out_path), final)
     if not ok:
         raise IOError(f"cv2.imwrite failed for: {out_path}")
 
@@ -173,7 +176,7 @@ def composite_aligned_qwen_into_original(
     except Exception:
         pass
 
-    return orig, out, mask_ignore
+    return orig, final, mask_ignore, aligned
 
 
 # -----------------------------
@@ -185,6 +188,7 @@ def run_qwen_tree(
     garment_word: str,
     clothing_flag: str,           # upper|lower|dress
     length_flag: Optional[str],   # short|long|None
+    final_mode: str = "composite",  # "composite" | "aligned_only"
     model_path: str = "Qwen/Qwen-Image-Edit-2511",
     sapiens_repo: str | Path = "Sapiens-Pytorch-Inference",
     sapiens_variant: str = "SEGMENTATION_1B",
@@ -210,6 +214,7 @@ def run_qwen_tree(
         "garment_word": garment_word,
         "clothing_flag": clothing_flag,
         "length_flag": length_flag,
+        "final_mode": final_mode,
         "model_path": model_path,
         "sapiens_repo": str(sapiens_repo),
         "sapiens_variant": sapiens_variant,
@@ -229,6 +234,13 @@ def run_qwen_tree(
 
     # init once
     pipe = load_qwen_pipe(model_path=model_path)
+
+    # IMPORTANT: for dress we want union mask to include:
+    # upper clothing + lower clothing + arms + legs.
+    # Your MaskedOpticalFlowConfig (as pasted earlier) already does that when clothing_flag == "dress".
+    # We enforce it here by passing clothing_flag="dress" and length_flag=None.
+    if clothing_flag == "dress":
+        length_flag = None
 
     flow_cfg = MaskedOpticalFlowConfig(
         target_h=height,
@@ -275,7 +287,7 @@ def run_qwen_tree(
                 wandb.log({"path": rel.as_posix(), "status": "flat_copy_failed", "error": str(e)}, step=idx)
             continue
 
-        # normal => qwen + flow + composite + log images + heatmaps
+        # normal => qwen + flow + (optional) composite + log images + heatmaps
         try:
             # Load original (PIL for qwen)
             person_img = Image.open(p).convert("RGB")
@@ -292,7 +304,7 @@ def run_qwen_tree(
                 seed=seed,
             )
 
-            # Prepare resized original (BGR) to target size for fair compare & flow/composite
+            # Prepare resized original (BGR) to target size for fair compare & flow
             orig_bgr = cv2.imread(str(p))
             if orig_bgr is None:
                 raise FileNotFoundError(f"cv2 could not read: {p}")
@@ -313,26 +325,29 @@ def run_qwen_tree(
             if out_save_path.suffix.lower() not in (".png", ".jpg", ".jpeg"):
                 out_save_path = out_save_path.with_suffix(".png")
 
-            # Run masked flow align + composite and save final
-            orig_bgr2, out_bgr, mask_ignore = composite_aligned_qwen_into_original(
+            # Align (and optionally composite), then save final
+            orig_bgr2, final_bgr, mask_ignore, aligned_bgr = align_qwen_to_original(
                 flow=flow,
                 original_resized_path=orig_tmp_path,
                 qwen_resized_path=qwen_tmp_path,
                 out_path=out_save_path,
+                final_mode=final_mode,
             )
 
-            # Heatmaps (NOT saved, only logged)
-            hm_full = diff_heatmap_u8(orig_bgr2, out_bgr)
-            hm_masked = diff_heatmap_u8_masked(orig_bgr2, out_bgr, mask_ignore)
+            # Heatmaps (NOT saved, only logged): original vs FINAL
+            hm_full = diff_heatmap_u8(orig_bgr2, final_bgr)
+            hm_masked = diff_heatmap_u8_masked(orig_bgr2, final_bgr, mask_ignore)
 
             # Log EVERYTHING for this image
             wandb.log(
                 {
                     "path": rel.as_posix(),
                     "status": "ok",
+                    "final_mode": final_mode,
                     "original": bgr_to_wandb_image(orig_bgr2, caption=rel.as_posix()),
                     "qwen": wandb.Image(np.asarray(qwen_img), caption=rel.as_posix()),
-                    "final": bgr_to_wandb_image(out_bgr, caption=rel.as_posix()),
+                    "aligned_qwen": bgr_to_wandb_image(aligned_bgr, caption=f"{rel.as_posix()} | aligned"),
+                    "final": bgr_to_wandb_image(final_bgr, caption=f"{rel.as_posix()} | final"),
                     "heatmap_full": gray_u8_to_wandb_image(hm_full, caption="orig vs final"),
                     "heatmap_masked": gray_u8_to_wandb_image(hm_masked, caption="orig vs final (mask ignored)"),
                     "mask_ignore": gray_u8_to_wandb_image(mask_ignore, caption="union mask (dilated)"),
@@ -381,7 +396,7 @@ def _normalize_length_flag(x: Optional[str]) -> Optional[str]:
 
 def main():
     ap = argparse.ArgumentParser(
-        "Recursive Qwen edit (NO reference clothing image) + masked optical flow composite (union clothing mask), "
+        "Recursive Qwen edit (NO reference clothing image) + masked optical flow (union clothing mask), "
         "preserving folder structure, with W&B logging + 2 heatmaps."
     )
     ap.add_argument("--input_root", type=Path, required=True)
@@ -391,6 +406,17 @@ def main():
 
     ap.add_argument("--clothing_flag", type=str, required=True, choices=["upper", "lower", "dress"])
     ap.add_argument("--length_flag", type=str, default="none", help="short|long|none (use none for dress).")
+
+    ap.add_argument(
+        "--final_mode",
+        type=str,
+        default="composite",
+        choices=["composite", "aligned_only"],
+        help=(
+            "composite: outside mask=original, inside mask=aligned qwen. "
+            "aligned_only: output is the aligned qwen image only (no pixel replacement from original)."
+        ),
+    )
 
     ap.add_argument("--model_path", type=str, default="Qwen/Qwen-Image-Edit-2511")
     ap.add_argument("--sapiens_repo", type=str, default="Sapiens-Pytorch-Inference")
@@ -408,12 +434,20 @@ def main():
 
     args = ap.parse_args()
 
+    clothing_flag = args.clothing_flag
+    length_flag = _normalize_length_flag(args.length_flag)
+
+    # If dress: force length_flag=None; and MaskedOpticalFlowConfig will include upper+lower+arms+legs.
+    if clothing_flag == "dress":
+        length_flag = None
+
     run_qwen_tree(
         input_root=args.input_root,
         output_root=args.output_root,
         garment_word=args.garment_word,
-        clothing_flag=args.clothing_flag,
-        length_flag=_normalize_length_flag(args.length_flag),
+        clothing_flag=clothing_flag,
+        length_flag=length_flag,
+        final_mode=args.final_mode,
         model_path=args.model_path,
         sapiens_repo=args.sapiens_repo,
         sapiens_variant=args.sapiens_variant,
