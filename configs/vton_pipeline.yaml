@@ -1,0 +1,121 @@
+paths:
+  scene_dir: "data/train/florian/"
+  runs_root: "data/train/florian/sweep_runs"   # optional
+
+wandb:
+  project: "vton_optical_flow"
+  run_name: "vton_florian_16"
+  mode: "online"
+
+pipeline:
+  steps:
+    extract_frames: true
+    vggt: true
+    qwen: true
+    optical_flow: true
+    background_segmentation: true
+    depth_loss: true
+    gsplat: true
+  input_mirror: "copy"
+
+
+extract_frames:
+  videos_dir: "video"
+  video_name: "florian_shirt.MOV"        # optional: if not specified, process first video in videos_dir
+  num_frames: 30
+  start: 0
+  end: null
+  ext: "png"
+  rotate: 90
+  overwrite: true
+  clear_output_dir: true
+
+vggt:
+  use_ba: false
+  max_reproj_error: 8.0
+  shared_camera: false
+  camera_type: "SIMPLE_PINHOLE"
+  vis_thresh: 0.2
+  query_frame_num: 8
+  max_query_pts: 4096
+  fine_tracking: true
+  conf_thres_value: 5.0
+  keep_top_percent: 0.2
+  seed: 42
+
+qwen:
+  #qwen model
+  model_path: "Qwen/Qwen-Image-Edit-2511"
+  clothing_image: "data/clothing/train/upper/short/shirts/white_plants_shirt.jpg"
+  prompt: "Replace the person's original clothing with the clothing image. Do not invent new features. Keep the person identical: pose, body, face, hair, and background must remain unchanged."
+  negative_prompt: "change pose"
+  # Diffusion parameters
+  true_cfg_scale: 4.0
+  num_inference_steps: 20
+  seed: 0
+  # File extensions for images in <scene_dir>/real/images/
+  extensions: [".jpg", ".jpeg", ".png"]
+
+
+masked_optical_flow:
+  composite_original_outside_mask: true
+  sapiens_repo: "Sapiens-Pytorch-Inference"
+  sapiens_variant: "SEGMENTATION_1B"
+  target_h: 1248
+  target_w: 704
+  dilate_px: 15
+  feather_sigma: 7.0
+  ecc_n_iter: 400
+  ecc_eps: 1e-7
+  # debug_dir: "_debug_mof"   #optional
+
+background_segmentation:
+  model_id: "facebook/sam3"
+  prompt: "human"
+  threshold: 0.5
+  mask_threshold: 0.5
+  pick: "largest"          # union, largest, best_score
+  masks_dir_name: "human_masks"
+  mask_suffix: "human_masks"        # optional
+  wandb_log: true
+  wandb_prefix: "human_seg"
+  overlay_alpha: 0.45
+
+sapiens_depth:
+  depth_type: "DEPTH_1B"
+  overwrite: true
+  device: null
+
+gsplat:
+  test_every: 8
+  data_factor: 1
+  tile_size: 8
+  max_steps: 3_500
+  disable_video: true
+  disable_viewer: true
+  eval_steps:
+    - 50
+    - 100
+    - 200
+    - 300
+    - 400
+    - 500
+    - 750
+    - 1000
+    - 1250
+    - 1500
+    - 1750
+    - 2000
+    - 2250
+    - 2500
+    - 2750
+    - 3000
+    - 3250
+    - 3499
+
+  depth:
+    depth_lambda: 0.01
+    depth_grad_lambda: 0.05
+    depth_grad_mode: "l1"
+    depth_grad_charb_eps: 1e-3
+    depth_zmin: 1e-3
