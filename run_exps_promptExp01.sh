@@ -28,7 +28,7 @@ declare -A CLOTHING_PATH=(
 SERIAL=1
 prev_jobid=""
 
-for person in can jan petra; do
+for person in florian can jan petra; do
   for cloth in "${clothes[@]}"; do
 
     # dress nur für petra
@@ -37,7 +37,7 @@ for person in can jan petra; do
     fi
 
     scene_dir="data/train/${person}/"
-    run_name="vton_opflow_${person}_${cloth}"
+    run_name="vton_proengExp2_${person}_${cloth}"
     video_name="${VIDEO[$person]}"
     clothing_image="${CLOTHING_PATH[$cloth]}"
 
@@ -46,12 +46,26 @@ for person in can jan petra; do
     # Base-YAML kopieren
     cp "$BASE_YAML" "$out_cfg"
 
-    # negative_prompt dynamisch: alle anderen Kleidungsstücke (zusätzlich zu "change pose")
-    neg_prompt="change pose"
-    for c in "${clothes[@]}"; do
-      [[ "$c" == "$cloth" ]] && continue
-      neg_prompt+=", change ${c}"
-    done
+    # prompt + negative_prompt je nach Kleidungsstück
+    case "$cloth" in
+      shirt)
+        prompt="Replace the person's original shirt with the clothing image."
+        neg_prompt="change pose, pant, dress, body, face, hair and background"
+        ;;
+      pant)
+        prompt="Replace the person's original pant with the clothing image."
+        neg_prompt="change pose, shirt, dress, body, face, hair and background"
+        ;;
+      dress)
+        prompt="Replace the person's original clothing with the clothing image."
+        neg_prompt="change pose, body, face, hair and background"
+        ;;
+      *)
+        echo "Unknown cloth: $cloth" >&2
+        exit 1
+        ;;
+    esac
+
 
     # YAML-Felder ersetzen
     sed -i "s|^  scene_dir: .*|  scene_dir: \"${scene_dir}\"|g" "$out_cfg"
@@ -59,7 +73,9 @@ for person in can jan petra; do
     sed -i "s|^  run_name: .*|  run_name: \"${run_name}\"|g" "$out_cfg"
     sed -i "s|^  video_name: .*|  video_name: \"${video_name}\"|g" "$out_cfg"
     sed -i "s|^  clothing_image: .*|  clothing_image: \"${clothing_image}\"|g" "$out_cfg"
-    sed -i "s|^  negative_prompt: .*|  negative_prompt: \"${neg_prompt}\"|g" "$out_cfg"
+    sed -i "/^qwen:$/,/^[a-zA-Z_][a-zA-Z0-9_]*:$/ s|^  prompt: .*|  prompt: \"${prompt}\"|g" "$out_cfg"
+    sed -i "/^qwen:$/,/^[a-zA-Z_][a-zA-Z0-9_]*:$/ s|^  negative_prompt: .*|  negative_prompt: \"${neg_prompt}\"|g" "$out_cfg"
+
 
     echo "Submitting ${run_name}"
     echo "  config: $out_cfg"
