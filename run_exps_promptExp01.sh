@@ -37,7 +37,7 @@ for person in florian can jan petra; do
     fi
 
     scene_dir="data/train/${person}/"
-    run_name="vton_proengExp2_${person}_${cloth}"
+    run_name="Exp01_${person}_${cloth}"
     video_name="${VIDEO[$person]}"
     clothing_image="${CLOTHING_PATH[$cloth]}"
 

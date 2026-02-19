@@ -3,8 +3,8 @@ paths:
   runs_root: "data/train/florian/sweep_runs"   # optional
 
 wandb:
-  project: "vton_optical_flow"
-  run_name: "vton_florian_16"
+  project: "vton_prompt_engineering"
+  run_name: "vton_person_prompt1"
   mode: "online"
 
 pipeline:
