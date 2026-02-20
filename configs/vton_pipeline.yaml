@@ -47,8 +47,8 @@ qwen:
   #qwen model
   model_path: "Qwen/Qwen-Image-Edit-2511"
   clothing_image: "data/clothing/train/upper/short/shirts/white_plants_shirt.jpg"
-  prompt: "Replace the person's original clothing with the clothing image. Do not invent new features. Keep the person identical: pose, body, face, hair, and background must remain unchanged."
-  negative_prompt: "change pose"
+  prompt: "Replace the person's original shirt with the clothing image."
+  negative_prompt: "change pose, pant, dress, body, face, hair and background"
   # Diffusion parameters
   true_cfg_scale: 4.0
   num_inference_steps: 20
@@ -76,7 +76,7 @@ background_segmentation:
   mask_threshold: 0.5
   pick: "largest"          # union, largest, best_score
   masks_dir_name: "human_masks"
-  mask_suffix: "human_masks"        # optional
+  mask_suffix: ""        # optional
   wandb_log: true
   wandb_prefix: "human_seg"
   overlay_alpha: 0.45
