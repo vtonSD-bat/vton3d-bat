@@ -23,6 +23,7 @@ dependencies = [
     "accelerate",
     "peft",
     "datasets",
+    "wandb",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

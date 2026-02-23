@@ -29,7 +29,12 @@ def launch_training_task(
     dataloader = torch.utils.data.DataLoader(dataset, shuffle=True, collate_fn=lambda x: x[0], num_workers=num_workers)
     
     model, optimizer, dataloader, scheduler = accelerator.prepare(model, optimizer, dataloader, scheduler)
-    
+
+    import time
+
+    global_step = 0
+    t0 = time.time()
+
     for epoch_id in range(num_epochs):
         for data in tqdm(dataloader):
             with accelerator.accumulate(model):
@@ -38,12 +43,27 @@ def launch_training_task(
                     loss = model({}, inputs=data)
                 else:
                     loss = model(data)
+
                 accelerator.backward(loss)
                 optimizer.step()
                 model_logger.on_step_end(accelerator, model, save_steps)
                 scheduler.step()
+
+            if accelerator.is_main_process:
+                lr = optimizer.param_groups[0]["lr"]
+                loss_val = loss.detach().float().item()
+                accelerator.log({"train/loss": loss_val, "train/lr": lr}, step=global_step)
+
+                if global_step % 20 == 0 and global_step > 0:
+                    dt = time.time() - t0
+                    accelerator.log({"train/steps_per_sec": 20.0 / dt}, step=global_step)
+                    t0 = time.time()
+
+            global_step += 1
+
         if save_steps is None:
             model_logger.on_epoch_end(accelerator, model, epoch_id)
+
     model_logger.on_training_end(accelerator, model, save_steps)
 
 

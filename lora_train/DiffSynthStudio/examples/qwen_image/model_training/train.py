@@ -97,6 +97,19 @@ if __name__ == "__main__":
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         kwargs_handlers=[accelerate.DistributedDataParallelKwargs(find_unused_parameters=args.find_unused_parameters)],
     )
+
+    if os.environ.get("WANDB_PROJECT"):
+        accelerator.init_trackers(
+            project_name=os.environ["WANDB_PROJECT"],
+            config=vars(args),
+            init_kwargs={
+                "wandb": {
+                    "name": os.environ.get("WANDB_RUN_NAME", None),
+                    "entity": os.environ.get("WANDB_ENTITY", None),
+                }
+            },
+        )
+
     dataset = UnifiedDataset(
         base_path=args.dataset_base_path,
         metadata_path=args.dataset_metadata_path,
