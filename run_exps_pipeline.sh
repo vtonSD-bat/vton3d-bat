@@ -24,6 +24,19 @@ declare -A CLOTHING_PATH=(
   [dress]="data/clothing/train/dress/black_dress.jpg"
 )
 
+# Per-cloth prompts (used to build the prompts mapping in the YAML)
+declare -A PROMPT=(
+  [shirt]="Replace ONLY the person's original shirt with the clothing image. Do not redesign or stylize the garment. The new garment must match the reference exactly: same colors, fabric texture, pattern/print, logos, seams/stitching, neckline/collar, sleeve length, fit, and hem/waist details. Keep background, pose, face, hair, skin, body shape, all other clothes of the person, lighting and camera exactly unchanged. Ensure temporal consistency. Produce clean boundaries where the new garment meets skin/other clothing; remove all remnants of the original shirt."
+  [pant]="Replace ONLY the person's original pant with the clothing image. Do not redesign or stylize the garment. The new garment must match the reference exactly: same colors, fabric texture, pattern/print, logos, seams/stitching, neckline/collar, sleeve length, fit, and hem/waist details. Keep background, pose, face, hair, skin, body shape, all other clothes of the person, lighting and camera exactly unchanged. Ensure temporal consistency. Produce clean boundaries where the new garment meets skin/other clothing; remove all remnants of the original pant."
+  [dress]="Replace ONLY the person's original pant and shirt with the clothing image. Do not redesign or stylize the garment. The new garment must match the reference exactly: same colors, fabric texture, pattern/print, logos, seams/stitching, neckline/collar, sleeve length, fit, and hem/waist details. Keep background, pose, face, hair, skin, body shape, all other clothes of the person, lighting and camera exactly unchanged. Ensure temporal consistency. Produce clean boundaries where the new garment meets skin/other clothing; remove all remnants of the original pant and shirt."
+)
+
+declare -A NEG_PROMPT=(
+  [shirt]="pose change, body shape change, face change, hair change, background change, lighting change, camera change, style transfer, redesign, different garment, different color, different fabric, different pattern, different logo, extra clothing pieces, text, watermark, artifacts, blended old clothing, visible remnants of original clothing."
+  [pant]="pose change, body shape change, face change, hair change, background change, lighting change, camera change, style transfer, redesign, different garment, different color, different fabric, different pattern, different logo, extra clothing pieces, text, watermark, artifacts, blended old clothing, visible remnants of original clothing."
+  [dress]="pose change, body shape change, face change, hair change, background change, lighting change, camera change, style transfer, redesign, different garment, different color, different fabric, different pattern, different logo, extra clothing pieces, text, watermark, artifacts, blended old clothing, visible remnants of original clothing."
+)
+
 # Seriell laufen lassen (Dependency-Kette)
 SERIAL=1
 prev_jobid=""
@@ -37,7 +50,7 @@ for person in florian can jan petra; do
     fi
 
     scene_dir="data/train/${person}/"
-    run_name="Exp02_${person}_${cloth}"
+    run_name="Exp00_${person}_${cloth}"
     video_name="${VIDEO[$person]}"
     clothing_image="${CLOTHING_PATH[$cloth]}"
 
@@ -46,25 +59,9 @@ for person in florian can jan petra; do
     # Base-YAML kopieren
     cp "$BASE_YAML" "$out_cfg"
 
-    # prompt + negative_prompt je nach Kleidungsstück
-    case "$cloth" in
-      shirt)
-        prompt="Replace the person's original shirt with the clothing image."
-        neg_prompt="change pose, pant, dress, body, face, hair and background"
-        ;;
-      pant)
-        prompt="Replace the person's original pant with the clothing image."
-        neg_prompt="change pose, shirt, dress, body, face, hair and background"
-        ;;
-      dress)
-        prompt="Replace the person's original pant and shirt with the clothing image."
-        neg_prompt="change pose, body, face, hair and background"
-        ;;
-      *)
-        echo "Unknown cloth: $cloth" >&2
-        exit 1
-        ;;
-    esac
+    # prompt + negative_prompt je nach Kleidungsstück aus den Arrays
+    prompt="${PROMPT[$cloth]}"
+    neg_prompt="${NEG_PROMPT[$cloth]}"
 
 
     # YAML-Felder ersetzen
@@ -75,6 +72,15 @@ for person in florian can jan petra; do
     sed -i "s|^  clothing_image: .*|  clothing_image: \"${clothing_image}\"|g" "$out_cfg"
     sed -i "/^qwen:$/,/^[a-zA-Z_][a-zA-Z0-9_]*:$/ s|^  prompt: .*|  prompt: \"${prompt}\"|g" "$out_cfg"
     sed -i "/^qwen:$/,/^[a-zA-Z_][a-zA-Z0-9_]*:$/ s|^  negative_prompt: .*|  negative_prompt: \"${neg_prompt}\"|g" "$out_cfg"
+    sed -i "/^qwen:$/,/^[a-zA-Z_][a-zA-Z0-9_]*:$/ { /  negative_prompt:/ a\
+  prompts:\
+    upper: \"${PROMPT[shirt]}\"\
+    lower: \"${PROMPT[pant]}\"\
+    dress: \"${PROMPT[dress]}\"\
+  negative_prompts:\
+    upper: \"${NEG_PROMPT[shirt]}\"\
+    lower: \"${NEG_PROMPT[pant]}\"\
+    dress: \"${NEG_PROMPT[dress]}\" }" "$out_cfg"
 
 
     echo "Submitting ${run_name}"
