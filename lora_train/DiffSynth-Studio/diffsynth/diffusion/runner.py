@@ -89,15 +89,55 @@ def launch_training_task(
 
         from PIL import Image
         import wandb
+        import numpy as np
+        import matplotlib.cm as cm
 
         infer_steps = int(getattr(args, "eval_infer_steps", 20)) if args is not None else 20
         cfg_scale = float(getattr(args, "eval_cfg_scale", 1.0)) if args is not None else 1.0
         seed = int(getattr(args, "eval_seed", 0)) if args is not None else 0
         base = Path(getattr(args, "val_dataset_base_path")) if args is not None else Path(".")
 
+        def pil_to_np01(img: Image.Image) -> np.ndarray:
+            return np.asarray(img.convert("RGB")).astype(np.float32) / 255.0
+
+        def compute_psnr(tgt01: np.ndarray, pred01: np.ndarray, mask_exclude: np.ndarray | None = None) -> float:
+            diff = tgt01 - pred01
+            if mask_exclude is not None:
+                diff = diff.copy()
+                diff[mask_exclude] = 0.0
+                denom = (~mask_exclude).sum()
+                if denom <= 0:
+                    return float("nan")
+                mse = (diff ** 2).sum() / (denom * 3.0)
+            else:
+                mse = float(np.mean(diff ** 2))
+
+            if mse <= 1e-12:
+                return 99.0
+            return float(10.0 * np.log10(1.0 / mse))
+
+        def make_heatmap_pil(tgt01: np.ndarray, pred01: np.ndarray,
+                             mask_exclude: np.ndarray | None = None) -> Image.Image:
+            abs_diff = np.abs(tgt01 - pred01)
+            heatmap_gray = abs_diff.mean(axis=2)  # HxW
+            if mask_exclude is not None:
+                heatmap_gray = heatmap_gray.copy()
+                heatmap_gray[mask_exclude] = 0.0
+
+            norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
+            colormap = cm.get_cmap("Reds")
+            heat_rgb = (colormap(norm)[..., :3] * 255).astype(np.uint8)
+            return Image.fromarray(heat_rgb, mode="RGB")
+
         model.eval()
         with torch.no_grad():
-            wandb_imgs = []
+            wandb_inputs = []
+            wandb_preds = []
+            wandb_targets = []
+            wandb_heatmaps = []
+
+            psnr_vals = []
+            psnr_per_sample = {}
 
             for s in tracked_val_samples:
                 sid = s.get("sample_id", "sample")
@@ -108,10 +148,13 @@ def launch_training_task(
                     continue
 
                 edit_imgs = [Image.open(p).convert("RGB") for p in edit_paths]
+                input_img = edit_imgs[0].convert("RGB")
 
-                input_img = edit_imgs[0]
                 target_img = Image.open(target_path).convert("RGB")
+
                 w, h = input_img.size
+                input_img_r = input_img.resize((w, h))
+                target_img_r = target_img.resize((w, h))
 
                 try:
                     out = model.pipe(
@@ -144,15 +187,39 @@ def launch_training_task(
                 else:
                     pred_img = out[0]
 
-                grid = Image.new("RGB", (w * 3, h))
-                grid.paste(input_img.resize((w, h)), (0, 0))
-                grid.paste(pred_img.resize((w, h)), (w, 0))
-                grid.paste(target_img.resize((w, h)), (w * 2, 0))
+                pred_img_r = pred_img.convert("RGB").resize((w, h))
 
-                wandb_imgs.append(wandb.Image(grid, caption=f"{sid} @ step {step}"))
+                mask_exclude = None
 
-            if len(wandb_imgs) > 0:
-                accelerator.log({"val/preds": wandb_imgs}, step=step)
+                tgt01 = pil_to_np01(target_img_r)
+                pred01 = pil_to_np01(pred_img_r)
+
+                psnr_val = compute_psnr(tgt01, pred01, mask_exclude=mask_exclude)
+                psnr_vals.append(psnr_val)
+                psnr_per_sample[f"val/psnr/{sid}"] = psnr_val
+
+                heat = make_heatmap_pil(tgt01, pred01, mask_exclude=mask_exclude).resize((w, h))
+
+                wandb_inputs.append(wandb.Image(input_img_r, caption=f"{sid} input @ step {step}"))
+                wandb_preds.append(
+                    wandb.Image(pred_img_r, caption=f"{sid} pred @ step {step} | PSNR={psnr_val:.2f} dB"))
+                wandb_targets.append(wandb.Image(target_img_r, caption=f"{sid} target @ step {step}"))
+                wandb_heatmaps.append(wandb.Image(heat, caption=f"{sid} heatmap @ step {step}"))
+
+            log_payload = {}
+
+            if len(wandb_inputs) > 0:
+                log_payload["val/input"] = wandb_inputs
+                log_payload["val/pred"] = wandb_preds
+                log_payload["val/target"] = wandb_targets
+                log_payload["val/heatmap"] = wandb_heatmaps
+
+            if len(psnr_vals) > 0:
+                log_payload["val/psnr_mean"] = float(np.nanmean(psnr_vals))
+                log_payload.update(psnr_per_sample)
+
+            if len(log_payload) > 0:
+                accelerator.log(log_payload, step=step)
 
         model.train()
 
