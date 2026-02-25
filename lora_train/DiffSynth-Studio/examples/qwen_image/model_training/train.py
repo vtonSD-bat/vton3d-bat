@@ -12,7 +12,7 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
         model_paths=None, model_id_with_origin_paths=None,
         tokenizer_path=None, processor_path=None,
         trainable_models=None,
-        lora_base_model=None, lora_target_modules="", lora_rank=32, lora_checkpoint=None,
+        lora_base_model=None, lora_target_modules="", lora_rank=32, lora_checkpoint=None, lora_dropout: float = 0.0,
         preset_lora_path=None, preset_lora_model=None,
         use_gradient_checkpointing=True,
         use_gradient_checkpointing_offload=False,
@@ -32,6 +32,8 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
         tokenizer_config = ModelConfig(model_id="Qwen/Qwen-Image", origin_file_pattern="tokenizer/") if tokenizer_path is None else ModelConfig(tokenizer_path)
         processor_config = ModelConfig(model_id="Qwen/Qwen-Image-Edit", origin_file_pattern="processor/") if processor_path is None else ModelConfig(processor_path)
 
+        self.lora_dropout = lora_dropout
+
         self.pipe = QwenImagePipeline.from_pretrained(
             torch_dtype=torch.bfloat16,
             device=device,
@@ -47,6 +49,7 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
             lora_base_model, lora_target_modules, lora_rank, lora_checkpoint,
             preset_lora_path, preset_lora_model,
             task=task,
+            lora_dropout=self.lora_dropout,
         )
 
         # Other configs
@@ -130,6 +133,8 @@ def qwen_image_parser():
     parser.add_argument("--eval_cfg_scale", type=float, default=1.0)
     parser.add_argument("--eval_seed", type=int, default=0)
     parser.add_argument("--eval_max_val_batches", type=int, default=0, help="0 = full val")
+
+    parser.add_argument("--lora_dropout", type=float, default=0.0, help="LoRA dropout (PEFT lora_dropout).")
     # -----------------------------------------
 
     return parser
@@ -227,6 +232,7 @@ if __name__ == "__main__":
         task=args.task,
         device="cpu" if args.initialize_model_on_cpu else accelerator.device,
         zero_cond_t=args.zero_cond_t,
+        lora_dropout=args.lora_dropout,
     )
 
     model_logger = ModelLogger(
