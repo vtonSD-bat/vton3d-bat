@@ -6,6 +6,9 @@ from PIL import Image
 import torch
 from diffusers import QwenImageEditPlusPipeline
 import wandb
+import cv2
+import matplotlib.cm as cm
+import numpy as np
 
 from vton3d.utils.qwen_eval import (
     qwen_eval_masked,
@@ -19,7 +22,6 @@ SAPIENS_REPO = REPO_ROOT / "Sapiens-Pytorch-Inference"
 sys.path.insert(0, str(SAPIENS_REPO))
 
 from sapiens_inference.segmentation import SapiensSegmentation, SapiensSegmentationType
-import numpy as np
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,6 +205,110 @@ def clear_gpu_cache():
         torch.cuda.empty_cache()
     gc.collect()
 
+def align_and_overwrite_with_optical_flow(
+    aligner,
+    src_path: Path,
+    tgt_path: Path,
+    composite_original_outside_mask: bool,
+):
+    """
+    Runs MaskedOpticalFlow alignment (src->tgt), overwrites src_path in-place,
+    and returns debug info for logging.
+    """
+    result = aligner.run_from_paths(
+        src_path=src_path,
+        tgt_path=tgt_path,
+        output_path=src_path,  # overwrite
+        debug_dir=None,
+    )
+
+    aligned_bgr = cv2.imread(str(src_path))
+    if aligned_bgr is None:
+        raise RuntimeError(f"Could not read aligned image after write: {src_path}")
+
+    mask = result["mask_ignore"]
+
+    real_bgr = cv2.imread(str(tgt_path))
+    if real_bgr is None:
+        raise RuntimeError(f"Could not read real image: {tgt_path}")
+
+    if composite_original_outside_mask:
+        inside = (mask > 0)
+        comp_bgr = real_bgr.copy()
+        comp_bgr[inside] = aligned_bgr[inside]
+        ok = cv2.imwrite(str(src_path), comp_bgr)
+        if not ok:
+            raise IOError(f"cv2.imwrite failed for composite: {src_path}")
+        aligned_bgr = comp_bgr
+
+    aligned_rgb = cv2.cvtColor(aligned_bgr, cv2.COLOR_BGR2RGB)
+
+    real = real_bgr.astype(np.float32) / 255.0
+    aligned = aligned_bgr.astype(np.float32) / 255.0
+
+    mask_ignore = mask.astype(bool)
+    mask_include = ~mask_ignore
+
+    diff = (real - aligned)
+    abs_diff = np.abs(diff)
+    heatmap_gray = abs_diff.mean(axis=2)
+    heatmap_gray[mask_ignore] = 0.0
+
+    norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
+    heatmap_rgb = (cm.get_cmap("Reds")(norm)[..., :3] * 255).astype(np.uint8)
+
+    diff2 = diff ** 2
+    diff2_masked = diff2[mask_include]
+    mse = float(diff2_masked.mean()) if diff2_masked.size > 0 else float("nan")
+    psnr = float(10.0 * np.log10(1.0 / (mse + 1e-12))) if np.isfinite(mse) else float("nan")
+
+    mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
+
+    flow = result["flow"]
+    mag = np.linalg.norm(flow, axis=2)
+    mean_mag = float(mag.mean())
+
+    mag_img = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    mag_rgb = cv2.cvtColor(mag_img, cv2.COLOR_GRAY2RGB)
+
+    return {
+        "aligned_rgb": aligned_rgb,
+        "mask_rgb": mask_rgb,
+        "flow_mag_rgb": mag_rgb,
+        "heatmap_rgb": heatmap_rgb,
+        "mse": mse,
+        "psnr": psnr,
+        "mean_flow_magnitude": mean_mag,
+    }
+
+def run_mof_and_get_aligned_pil(
+    aligner,
+    out_path: Path,
+    real_path: Path,
+    composite_original_outside_mask: bool,
+):
+    """
+    Runs optical flow to align out_path -> real_path, overwrites out_path,
+    logs to wandb under opticalflow/*, returns aligned PIL.Image.
+    """
+    oflow = align_and_overwrite_with_optical_flow(
+        aligner=aligner,
+        src_path=out_path,
+        tgt_path=real_path,
+        composite_original_outside_mask=composite_original_outside_mask,
+    )
+
+    wandb.log({
+        "opticalflow/aligned": wandb.Image(oflow["aligned_rgb"], caption=out_path.name),
+        "opticalflow/mask": wandb.Image(oflow["mask_rgb"], caption=f"{out_path.stem}_mask"),
+        "opticalflow/flow_map": wandb.Image(oflow["flow_mag_rgb"], caption=f"{out_path.stem}_flow_mag"),
+        "opticalflow/mean_flow_magnitude": oflow["mean_flow_magnitude"],
+        "opticalflow/heatmap_diff": wandb.Image(oflow["heatmap_rgb"], caption=f"{out_path.stem}_heatmap_diff"),
+        "opticalflow/mse_post_align": oflow["mse"],
+        "opticalflow/psnr_post_align": oflow["psnr"],
+    })
+
+    return Image.open(out_path).convert("RGB")
 
 def run_qwen_from_config_dict(qwen_cfg: dict):
     """
@@ -265,7 +371,10 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             f"got {first_num} for {image_files[0].name}"
         )
 
-    print("[order check]", image_files[0].name, image_files[1].name, image_files[-1].name)
+    if len(image_files) > 1:
+        print("[order check]", image_files[0].name, image_files[1].name, image_files[-1].name)
+    else:
+        print("[order check]", image_files[0].name)
 
     pipeline = load_pipeline(model_path)
     base_generator = torch.Generator(device="cpu").manual_seed(seed)
@@ -295,6 +404,31 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     print(f"Prompt:{prompt}")
     negative_prompt = negative_prompts_map.get(eval_flag, default_negative_prompt)
     print(f"negative Prompt: {negative_prompt}")
+
+    mof_cfg_dict = qwen_cfg.get("_masked_optical_flow", None)
+    do_integrated_mof = mof_cfg_dict is not None
+
+    aligner = None
+    composite_original_outside_mask = False
+
+    if do_integrated_mof:
+        from vton3d.utils.masked_optical_flow import MaskedOpticalFlow, MaskedOpticalFlowConfig
+
+        composite_original_outside_mask = bool(mof_cfg_dict.get("composite_original_outside_mask", False))
+
+        mof_cfg = MaskedOpticalFlowConfig(
+            target_h=int(mof_cfg_dict.get("target_h", 1248)),
+            target_w=int(mof_cfg_dict.get("target_w", 704)),
+            sapiens_repo=mof_cfg_dict.get("sapiens_repo", "Sapiens-Pytorch-Inference"),
+            sapiens_variant=mof_cfg_dict.get("sapiens_variant", "SEGMENTATION_1B"),
+            dilate_px=int(mof_cfg_dict.get("dilate_px", 10)),
+            feather_sigma=float(mof_cfg_dict.get("feather_sigma", 7.0)),
+            ecc_n_iter=int(mof_cfg_dict.get("ecc_n_iter", 400)),
+            ecc_eps=float(mof_cfg_dict.get("ecc_eps", 1e-7)),
+            flag_source_path=qwen_cfg.get("clothing_image", None),
+        )
+
+        aligner = MaskedOpticalFlow(mof_cfg)
 
     use_n_1 = bool(qwen_cfg.get("use_n_1", False))
     n = len(image_files)
@@ -391,25 +525,40 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                 height=1248,
             )
 
-        front_out = output.images[0]
+        front_out_raw = output.images[0]
         front_out_path = output_dir / f"{front_path.stem}.png"
-        front_out.save(front_out_path)
-        predicted_cache[front_idx] = front_out
+        front_out_raw.save(front_out_path)
 
+        # raw log (qwen)
         img_count += 1
         wandb.log({
             "qwen/input_image": wandb.Image(front_person, caption=front_path.name),
-            "qwen/output_image": wandb.Image(front_out, caption=front_out_path.name),
+            "qwen/output_image": wandb.Image(front_out_raw, caption=front_out_path.name),
             "qwen/image_index": img_count,
             "qwen/use_n_1": 1,
             "qwen/ref_kind": "none_front",
         })
 
+        front_for_ref = front_out_raw
+
+        if aligner is not None:
+            try:
+                front_for_ref = run_mof_and_get_aligned_pil(
+                    aligner=aligner,
+                    out_path=front_out_path,
+                    real_path=Path(front_path),
+                    composite_original_outside_mask=composite_original_outside_mask,
+                )
+            except Exception as e:
+                print(f"[WARN] optical flow failed for {front_out_path.name}: {e}")
+
+        predicted_cache[front_idx] = front_for_ref
+
         clear_gpu_cache()
 
         l, r = 1, n - 1
-        ref_right = front_out
-        ref_left = front_out
+        ref_right = front_for_ref
+        ref_left = front_for_ref
 
         toggle = True
         while l < r:
@@ -449,15 +598,29 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                     height=1248,
                 )
 
-            out_img = output.images[0]
+            out_img_raw = output.images[0]
             out_path = output_dir / f"{img_path.stem}.png"
-            out_img.save(out_path)
-            predicted_cache[idx] = out_img
+            out_img_raw.save(out_path)
+
+            out_img_for_ref = out_img_raw
+
+            if aligner is not None:
+                try:
+                    out_img_for_ref = run_mof_and_get_aligned_pil(
+                        aligner=aligner,
+                        out_path=out_path,
+                        real_path=Path(img_path),
+                        composite_original_outside_mask=composite_original_outside_mask,
+                    )
+                except Exception as e:
+                    print(f"[WARN] optical flow failed for {out_path.name}: {e}")
+
+            predicted_cache[idx] = out_img_for_ref
 
             if side == "right":
-                ref_right = out_img
+                ref_right = out_img_for_ref
             else:
-                ref_left = out_img
+                ref_left = out_img_for_ref
 
             mse_value, psnr_value, heatmap = qwen_eval_masked(
                 img1_path=str(img_path),
@@ -486,7 +649,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
             img_count += 1
             wandb.log({
-                "qwen/output_image": wandb.Image(out_img, caption=out_path.name),
+                "qwen/output_image": wandb.Image(out_img_raw, caption=out_path.name),
                 "qwen/image_index": img_count,
                 "qwen/use_n_1": 1,
                 f"qwen/mse_non_clothed_area_{eval_flag}_{length_flag}": mse_value,
@@ -536,10 +699,23 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                         height=1248,
                     )
 
-            out_img = output.images[0]
+            out_img_raw = output.images[0]
             out_path = output_dir / f"{img_path.stem}.png"
-            out_img.save(out_path)
-            predicted_cache[idx] = out_img
+            out_img_raw.save(out_path)
+
+            out_img_for_ref = out_img_raw
+            if aligner is not None:
+                try:
+                    out_img_for_ref = run_mof_and_get_aligned_pil(
+                        aligner=aligner,
+                        out_path=out_path,
+                        real_path=Path(img_path),
+                        composite_original_outside_mask=composite_original_outside_mask,
+                    )
+                except Exception as e:
+                    print(f"[WARN] optical flow failed for {out_path.name}: {e}")
+
+            predicted_cache[idx] = out_img_for_ref
 
             wandb.log({
                 "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
@@ -579,7 +755,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
             img_count += 1
             wandb.log({
-                "qwen/output_image": wandb.Image(out_img, caption=out_path.name),
+                "qwen/output_image": wandb.Image(out_img_raw, caption=out_path.name),
                 "qwen/image_index": img_count,
                 "qwen/use_n_1": 1,
                 f"qwen/mse_non_clothed_area_{eval_flag}_{length_flag}": mse_value,
