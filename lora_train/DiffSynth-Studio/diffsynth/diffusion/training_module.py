@@ -31,7 +31,18 @@ class DiffusionTrainingModule(torch.nn.Module):
             lora_alpha = lora_rank
         if isinstance(target_modules, list) and len(target_modules) == 1:
             target_modules = target_modules[0]
-        lora_config = LoraConfig(r=lora_rank, lora_alpha=lora_alpha, target_modules=target_modules, lora_dropout=lora_dropout)
+        try:
+            lora_config = LoraConfig(
+                r=lora_rank, lora_alpha=lora_alpha,
+                target_modules=target_modules,
+                lora_dropout=lora_dropout,
+            )
+        except TypeError:
+            lora_config = LoraConfig(
+                r=lora_rank, lora_alpha=lora_alpha,
+                target_modules=target_modules,
+            )
+            print("Warning: peft version does not support lora_dropout; ignoring.")
         model = inject_adapter_in_model(lora_config, model)
         if upcast_dtype is not None:
             for param in model.parameters():
