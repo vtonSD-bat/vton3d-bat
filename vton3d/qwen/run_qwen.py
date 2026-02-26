@@ -9,6 +9,7 @@ import wandb
 import cv2
 import matplotlib.cm as cm
 import numpy as np
+import bisect
 
 from vton3d.utils.qwen_eval import (
     qwen_eval_masked,
@@ -356,6 +357,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     frame_nums = [_extract_frame_number(p) for p in image_files]
     path_by_frame = {fn: p for fn, p in zip(frame_nums, image_files)}
     sorted_frames = sorted(path_by_frame.keys())
+    print(f"[frames] count={len(sorted_frames)} first={sorted_frames[:5]} last={sorted_frames[-5:]}")
 
     front_frame = sorted_frames[0]
     last_frame = sorted_frames[-1]
@@ -440,16 +442,15 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         """
         f = _extract_frame_number(curr_img_path)
 
-        if f == front_frame:
+        pos = bisect.bisect_left(sorted_frames, f)
+        if pos <= 0:
             wandb.log({f"qwen/fc_neighbor_prev_{eval_flag}_{length_flag}": float("nan")})
         else:
-            prev_f = f - 1
-            prev_out_path = None
-            if prev_f in path_by_frame:
-                prev_img = path_by_frame[prev_f]
-                prev_out_path = output_dir / f"{prev_img.stem}.png"
+            prev_f = sorted_frames[pos - 1]
+            prev_img = path_by_frame[prev_f]
+            prev_out_path = output_dir / f"{prev_img.stem}.png"
 
-            if prev_out_path is not None and prev_out_path.exists():
+            if prev_out_path.exists():
                 sim, m_prev, m_curr = qwen_fashionclip_similarity_neighbor_masked_clothing(
                     person_img_a_path=str(prev_out_path),
                     person_img_b_path=str(curr_out_path),
