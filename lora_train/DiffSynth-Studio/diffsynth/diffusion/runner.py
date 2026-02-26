@@ -155,6 +155,7 @@ def launch_training_task(
                 w, h = input_img.size
                 input_img_r = input_img.resize((w, h))
                 target_img_r = target_img.resize((w, h))
+                print("before infer timesteps:", len(getattr(model.pipe.scheduler, "timesteps", [])))
 
                 try:
                     out = model.pipe(
@@ -180,6 +181,7 @@ def launch_training_task(
                         zero_cond_t=True,
                     )
 
+                print("after infer timesteps:", len(getattr(model.pipe.scheduler, "timesteps", [])))
                 if hasattr(out, "save"):
                     pred_img = out
                 elif isinstance(out, dict) and "images" in out:
