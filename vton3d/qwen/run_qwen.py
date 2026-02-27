@@ -397,10 +397,56 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     prompts_map = qwen_cfg.get("prompts", {}) or {}
     negative_prompts_map = qwen_cfg.get("negative_prompts", {}) or {}
 
-    prompt = prompts_map.get(eval_flag, default_prompt)
-    print(f"Prompt:{prompt}")
+    base_prompt = prompts_map.get(eval_flag, default_prompt)
+    print(f"Prompt:{base_prompt}")
+
+    def tweak_base_prompt_for_n1_non_front(p: str) -> str:
+        """
+        For use_n_1 == True and ref_kind != 'front':
+        change "... all other clothes of the person, lighting ..."  ->
+               "... all other clothes of the person in image 1, lighting ..."
+        """
+        needle = "Keep background, pose, face, hair, skin, body shape, all other clothes of the person,"
+        repl   = "Keep background, pose, face, hair, skin, body shape, all other clothes of the person in image 1,"
+        if needle in p:
+            return p.replace(needle, repl, 1)
+        return p
+
     negative_prompt = negative_prompts_map.get(eval_flag, default_negative_prompt)
     print(f"negative Prompt: {negative_prompt}")
+
+    PREFIX_SINGLE_REF = (
+        "The person in image 1 wears the exact garment from image 2, "
+        "preserving image 1 entirely, with the garment naturally rotated "
+        "and pattern-aligned according to image 3. "
+    )
+    PREFIX_BOTH_REFS = (
+        "The person in image 1 wears the exact garment from image 2, "
+        "preserving image 1 entirely, with the garment naturally rotated "
+        "and pattern-aligned according to image 3 and pattern-aligned according to image 4. "
+    )
+
+    def build_prompt(ref_kind: str, use_n_1: bool) -> str:
+        """
+        ref_kind:
+          - 'front'  -> image=[person, clothing]
+          - 'single' -> image=[person, clothing, ref]
+          - 'both'   -> image=[person, clothing, ref_left, ref_right]
+        """
+        if not use_n_1:
+            return base_prompt
+
+        if ref_kind == "front":
+            return base_prompt
+
+        base_n1 = tweak_base_prompt_for_n1_non_front(base_prompt)
+
+        if ref_kind == "single":
+            return PREFIX_SINGLE_REF + base_n1
+        if ref_kind == "both":
+            return PREFIX_BOTH_REFS + base_n1
+
+        return base_n1
 
     mof_cfg_dict = qwen_cfg.get("_masked_optical_flow", None)
     do_integrated_mof = mof_cfg_dict is not None
@@ -501,7 +547,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
             inputs = {
                 "image": [person_image, clothing_image],
-                "prompt": prompt,
+                "prompt": build_prompt("front", use_n_1),
                 "generator": generator,
                 "true_cfg_scale": true_cfg_scale,
                 "negative_prompt": negative_prompt,
@@ -576,7 +622,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         with torch.inference_mode():
             output = pipeline(
                 image=[front_person, clothing_image],
-                prompt=prompt,
+                prompt=build_prompt("front", use_n_1),
                 generator=generator,
                 true_cfg_scale=true_cfg_scale,
                 negative_prompt=negative_prompt,
@@ -650,7 +696,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             with torch.inference_mode():
                 output = pipeline(
                     image=[person_image, clothing_image, ref],
-                    prompt=prompt,
+                    prompt=build_prompt("single", use_n_1),
                     generator=generator,
                     true_cfg_scale=true_cfg_scale,
                     negative_prompt=negative_prompt,
@@ -741,7 +787,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                 with torch.inference_mode():
                     output = pipeline(
                         image=[person_image, clothing_image, ref_left, ref_right],
-                        prompt=prompt,
+                        prompt=build_prompt("both", use_n_1),
                         generator=generator,
                         true_cfg_scale=true_cfg_scale,
                         negative_prompt=negative_prompt,
@@ -754,7 +800,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                 with torch.inference_mode():
                     output = pipeline(
                         image=[person_image, clothing_image, ref_combined],
-                        prompt=prompt,
+                        prompt=build_prompt("both", use_n_1),
                         generator=generator,
                         true_cfg_scale=true_cfg_scale,
                         negative_prompt=negative_prompt,
