@@ -12,8 +12,7 @@ def mean_flat(x: torch.Tensor) -> torch.Tensor:
 
 class ConvProjector2D(nn.Module):
     """
-    Minimaler Projektor: nimmt ein Feature-Map [B, C, H, W] und projiziert auf [B, 24, Ht, Wt].
-    Ht/Wt sind VGGT target grid sizes (bei dir: 1374x2048).
+    minimal projector: projects to 24 maps of vggt
     """
     def __init__(self, in_channels: int, out_channels: int = 24, mid_channels: int = 128):
         super().__init__()
@@ -24,7 +23,7 @@ class ConvProjector2D(nn.Module):
         )
 
     def forward(self, x: torch.Tensor, out_hw: tuple[int, int]) -> torch.Tensor:
-        # x: [B,C,H,W] -> [B,24,H,W] -> interpolate to out_hw
+        #x: [B,C,H,W] -> [B,24,H,W]  interpolate to out_hw
         y = self.net(x)
         y = F.interpolate(y, size=out_hw, mode="bilinear", align_corners=False)
         return y
@@ -32,11 +31,11 @@ class ConvProjector2D(nn.Module):
 
 class VGGTGeometryForcingLoss(nn.Module):
     """
-    GeometryForcing-style loss:
+    GeometryForcing loss:
     - VGGT frozen
-    - target: 24 aggregator outputs stacked to [BT,24,H,W] (wie repo)
+    - target: 24 aggregator outputs stacked to [BT,24,H,W]
     - pred: for each selected Qwen layer, projector(hidden) -> [BT,24,H,W]
-    - loss: map-wise cosine alignment (wie repo) + optional scale recon
+    - loss: map-wise cosine alignment + optional scale recon
     """
     def __init__(
         self,
@@ -48,7 +47,7 @@ class VGGTGeometryForcingLoss(nn.Module):
         scale_lambda: float = 1.0,
         projector_mid_channels: int = 128,
         qwen_layer_indices: list[int] | None = None,
-        timestep_max_for_3d: int | None = None,  # z.B. 500 (nur bis t<=500 loss aktiv)
+        timestep_max_for_3d: int | None = None,
     ):
         super().__init__()
         self.vggt_target_hw = vggt_target_hw
@@ -58,17 +57,14 @@ class VGGTGeometryForcingLoss(nn.Module):
         self.qwen_layer_indices = qwen_layer_indices or []
         self.timestep_max_for_3d = timestep_max_for_3d
 
-        # VGGT (frozen)
         self.vggt = VGGT.from_pretrained("facebook/VGGT-1B")
         self.vggt.eval()
         for p in self.vggt.parameters():
             p.requires_grad_(False)
-        self.vggt.to(device=device, dtype=torch.float32)  # VGGT lieber fp32 (stabil)
+        self.vggt.to(device=device, dtype=torch.float32)
 
-        # pro Qwen-layer eigener projector (lazy init sobald wir channels kennen)
-        self.projectors = nn.ModuleDict()  # key: str(layer_idx) -> projector
+        self.projectors = nn.ModuleDict()
 
-        # optional scale recon head (wie repo) – ebenfalls lazy, sobald 24-ch existiert
         if self.use_scale_recon:
             self.scale_head = nn.Sequential(
                 nn.Conv2d(24, projector_mid_channels, kernel_size=1),
@@ -78,14 +74,12 @@ class VGGTGeometryForcingLoss(nn.Module):
         else:
             self.scale_head = None
 
-        # dtype für Qwen features
         self.qwen_dtype = dtype
 
     @torch.no_grad()
     def _vggt_preprocess(self, images_btchw: torch.Tensor) -> torch.Tensor:
         """
         images_btchw: [B,T,3,H,W] in [0,1]
-        VGGT erwartet img_size=518; wir resizen genau wie im Repo.
         """
         b, t, c, h, w = images_btchw.shape
         x = rearrange(images_btchw, "b t c h w -> (b t) c h w")
@@ -98,7 +92,7 @@ class VGGTGeometryForcingLoss(nn.Module):
     def compute_vggt_target(self, gt_images_btc: torch.Tensor) -> torch.Tensor:
         vggt_dev = next(self.vggt.parameters()).device
         imgs = self._vggt_preprocess(gt_images_btc).to(vggt_dev, dtype=torch.float32)
-        aggregated_list, patch_start_idx = self.vggt.shortcut_forward(imgs)  # len=24, each [B,S,P,D]
+        aggregated_list, patch_start_idx = self.vggt.shortcut_forward(imgs)
 
         b, t, _, h_in, w_in = imgs.shape
         patch_size = 14  # VGGT default
@@ -109,20 +103,19 @@ class VGGTGeometryForcingLoss(nn.Module):
         maps = []
 
         for tok in aggregated_list:
-            # tok: [B,S,P,D]
             if tok.dim() != 4:
                 raise RuntimeError(f"Expected tok [B,S,P,D], got {tok.shape}")
 
-            tok = rearrange(tok, "b s p d -> (b s) p d")  # [BT,P,D]
-            tok = tok[:, patch_start_idx:, :]  # keep patch tokens only: [BT, hp*wp, D]
+            tok = rearrange(tok, "b s p d -> (b s) p d")
+            tok = tok[:, patch_start_idx:, :]
 
-            tok = rearrange(tok, "bt (h w) d -> bt d h w", h=hp, w=wp)  # [BT,D,37,37]
-            tok = tok.mean(dim=1, keepdim=True)  # [BT,1,37,37]  (eine Map pro Aggregator-Stufe)
+            tok = rearrange(tok, "bt (h w) d -> bt d h w", h=hp, w=wp)
+            tok = tok.mean(dim=1, keepdim=True)
 
             tok = F.interpolate(tok, size=(tgt_h, tgt_w), mode="bilinear", align_corners=False)
             maps.append(tok)
 
-        target = torch.cat(maps, dim=1)  # [BT,24,Ht,Wt]
+        target = torch.cat(maps, dim=1)
         return target
 
     def _get_or_make_projector(self, layer_idx: int, in_channels: int) -> nn.Module:
@@ -136,7 +129,7 @@ class VGGTGeometryForcingLoss(nn.Module):
     def _tokens_to_grid(self, hid: torch.Tensor) -> torch.Tensor:
         """
         hid: [B, N, D]
-        returns: [B, D, H, W]  (H*W = largest square <= N, using LAST H*W tokens)
+        returns: [B, D, H, W]  (H*W = largest square wera using last H*W tokens)
         """
         b, n, d = hid.shape
         side = int((n ** 0.5))
@@ -144,9 +137,8 @@ class VGGTGeometryForcingLoss(nn.Module):
         if hw < 1:
             raise RuntimeError(f"Cannot infer square grid from token length n={n}")
 
-        # take last H*W tokens as image tokens
-        img_tokens = hid[:, -hw:, :]  # [B, hw, D]
-        grid = rearrange(img_tokens, "b (h w) d -> b d h w", h=side, w=side)  # [B,D,H,W]
+        img_tokens = hid[:, -hw:, :]
+        grid = rearrange(img_tokens, "b (h w) d -> b d h w", h=side, w=side)
         return grid
 
     def forward(
@@ -161,9 +153,8 @@ class VGGTGeometryForcingLoss(nn.Module):
         gt_images_btc: [B,T,3,H,W] (edited GT)
         timesteps optional: [BT] or [B] or scalar
         """
-        # timestep gating (optional)
         if self.timestep_max_for_3d is not None and timesteps is not None:
-            # wenn *alle* in batch > max, dann skip
+
             tmax = int(self.timestep_max_for_3d)
             try:
                 t_val = timesteps.detach().view(-1)
@@ -172,7 +163,7 @@ class VGGTGeometryForcingLoss(nn.Module):
             except Exception:
                 pass
 
-        target = self.compute_vggt_target(gt_images_btc)  # [BT,24,Ht,Wt]
+        target = self.compute_vggt_target(gt_images_btc)
         target = target.to(device=gt_images_btc.device, dtype=self.qwen_dtype)
 
         total = 0.0
@@ -186,7 +177,7 @@ class VGGTGeometryForcingLoss(nn.Module):
                 hid = self._tokens_to_grid(hid)
 
             if os.environ.get("RANK", "0") == "0":
-                print("GRID HID:", hid.shape)  # sollte [1, 3072, 26, 26] sein
+                print("GRID HID:", hid.shape)
 
             if hid.dim() != 4:
                 raise RuntimeError(f"Qwen hidden for layer {layer_idx} must be 3D/4D/5D, got {hid.shape}")
@@ -198,9 +189,10 @@ class VGGTGeometryForcingLoss(nn.Module):
             tgt_flat  = rearrange(target, "b c h w -> b c (h w)")
 
             pred_n = F.normalize(pred_flat, p=2, dim=-1)
-            tgt_n  = F.normalize(tgt_flat, p=2, dim=-1)
+            tgt_n = F.normalize(tgt_flat, p=2, dim=-1)
 
-            loss_map = -(pred_n * tgt_n).sum(dim=-1)
+            cos = (pred_n * tgt_n).sum(dim=-1)
+            loss_map = 1.0 - cos
             loss = loss_map.sum(dim=-1)
             total = total + loss.mean()
             count += 1

@@ -65,7 +65,7 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
         self.task = task
         from diffsynth.geometry.vggt_align_loss import VGGTGeometryForcingLoss
 
-        self.use_3d_loss = False  # default
+        self.use_3d_loss = False
         self.three_d_loss_weight = 1.0
         self.three_d_qwen_layers = []
         self._qwen_hook_handles = []
@@ -85,7 +85,6 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
         else:
             self.vggt_loss = None
 
-        # diese Werte kommen aus args, du kannst sie im __init__ als Parameter reinreichen (empfohlen)
 
         self.zero_cond_t = zero_cond_t
 
@@ -132,7 +131,6 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
         return inputs_shared, inputs_posi, inputs_nega
 
     def forward(self, data, inputs=None):
-        # clear per step so we don't reuse stale hiddens
         if self.use_3d_loss:
             self._qwen_hidden_cache.clear()
 
@@ -141,18 +139,17 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
 
         inputs = self.transfer_data_to_device(inputs, self.pipe.device, self.pipe.torch_dtype)
 
-        # run pipeline units (this populates _qwen_hidden_cache via hooks)
         for unit in self.pipe.units:
             inputs = self.pipe.unit_runner(unit, self.pipe, *inputs)
 
-        # --- main loss (FlowMatch / DirectDistill) ---
+        # FlowMatch / DirectDistill loss
         loss_main = self.task_to_loss[self.task](self.pipe, *inputs)
         loss_total = loss_main
 
-        # --- optional 3D loss ---
+        # 3D loss ---
         loss_3d = None
         if self.use_3d_loss and (self.vggt_loss is not None) and (len(self._qwen_hidden_cache) > 0):
-            # (optional) one-time debug print
+            #for debug
             # if os.environ.get("RANK", "0") == "0":
             #     k = next(iter(self._qwen_hidden_cache))
             #     print("QWEN HOOK SHAPE:", k, tuple(self._qwen_hidden_cache[k].shape))
@@ -161,36 +158,33 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
             import numpy as np
 
             def pil_to_tensor01(img: Image.Image) -> torch.Tensor:
-                arr = np.asarray(img.convert("RGB")).astype("float32") / 255.0  # H,W,3
-                t = torch.from_numpy(arr).permute(2, 0, 1)  # 3,H,W
+                arr = np.asarray(img.convert("RGB")).astype("float32") / 255.0
+                t = torch.from_numpy(arr).permute(2, 0, 1)
                 return t
 
             gt = data.get("image", None)
             if gt is not None:
-                # gt -> tensor [B,3,H,W] in [0,1]
                 if isinstance(gt, Image.Image):
-                    gt_t = pil_to_tensor01(gt).unsqueeze(0)  # [1,3,H,W]
+                    gt_t = pil_to_tensor01(gt).unsqueeze(0)
                 elif torch.is_tensor(gt):
                     gt_t = gt
                     if gt_t.dim() == 3:
-                        gt_t = gt_t.unsqueeze(0)  # [1,3,H,W]
+                        gt_t = gt_t.unsqueeze(0)
                 elif isinstance(gt, list) and len(gt) > 0 and isinstance(gt[0], Image.Image):
-                    # if list, take first as GT
                     gt_t = pil_to_tensor01(gt[0]).unsqueeze(0)
                 else:
                     raise TypeError(f"Unsupported gt type for 3d loss: {type(gt)}")
 
                 gt_t = gt_t.to(device=self.pipe.device, dtype=self.pipe.torch_dtype)
 
-                # make [B,T,3,H,W] with T=1
                 if gt_t.dim() == 4:
-                    gt_t = gt_t.unsqueeze(1)  # [B,1,3,H,W]
+                    gt_t = gt_t.unsqueeze(1)
                 elif gt_t.dim() == 5:
                     pass
                 else:
                     raise RuntimeError(f"Unexpected gt tensor shape: {gt_t.shape}")
 
-                timesteps = None  # optional: wire in if you can access them
+                timesteps = None
                 qwen_feats = dict(self._qwen_hidden_cache)
 
                 loss_3d = self.vggt_loss(qwen_feats, gt_images_btc=gt_t, timesteps=timesteps)
@@ -242,7 +236,6 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
 
         def make_hook(layer_idx: int):
             def hook_fn(module, inp, out):
-                # out kann tuple sein – wir nehmen den ersten Tensor
                 if isinstance(out, (tuple, list)):
                     out0 = out[0]
                 else:
