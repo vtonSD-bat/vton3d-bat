@@ -63,7 +63,7 @@ class QwenImageTrainingModule(DiffusionTrainingModule):
         self.extra_inputs = extra_inputs.split(",") if extra_inputs is not None else []
         self.fp8_models = fp8_models
         self.task = task
-        from vggt_align_loss import VGGTGeometryForcingLoss
+        from diffsynth.geometry.vggt_align_loss import VGGTGeometryForcingLoss
 
         self.use_3d_loss = False  # default
         self.three_d_loss_weight = 1.0
