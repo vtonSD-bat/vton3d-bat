@@ -96,7 +96,8 @@ class VGGTGeometryForcingLoss(nn.Module):
 
     @torch.no_grad()
     def compute_vggt_target(self, gt_images_btc: torch.Tensor) -> torch.Tensor:
-        imgs = self._vggt_preprocess(gt_images_btc).to(self.vggt.device, dtype=torch.float32)
+        vggt_dev = next(self.vggt.parameters()).device
+        imgs = self._vggt_preprocess(gt_images_btc).to(vggt_dev, dtype=torch.float32)
         aggregated_list, patch_start_idx = self.vggt.shortcut_forward(imgs)  # len=24, each [B,S,P,D]
 
         b, t, _, h_in, w_in = imgs.shape
