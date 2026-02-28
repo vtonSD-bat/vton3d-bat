@@ -307,7 +307,15 @@ def launch_training_task(
                             accelerator.log({"val/loss": vloss}, step=global_step)
 
                     #val inference
-                    if eval_infer_every and global_step > 0 and global_step % eval_infer_every == 0:
+                    should_infer = False
+
+                    if global_step in {50, 100, 150}:
+                        should_infer = True
+
+                    if eval_infer_every and global_step > 0 and (global_step % eval_infer_every == 0):
+                        should_infer = True
+
+                    if should_infer:
                         run_tracked_predictions(global_step)
 
                     global_step += 1
