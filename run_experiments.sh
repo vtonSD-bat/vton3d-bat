@@ -5,12 +5,12 @@ SBATCH_SCRIPT="./run_pipeline.sh"
 BASE_YAML="configs/vton_pipeline.yaml"
 
 # Ordner vorbereiten
-mkdir -p configs/prompt_engi_yamls logs
+mkdir -p configs/optical_flow_yamls logs
 
 # Person -> Video
 declare -A VIDEO=(
   [florian]="florian_shirt.MOV"
-  [can]="can_jaeckli.MOV"
+  [can]="can_jaeckli.mov"
   [jan]="jan_fs.MOV"
   [petra]="petra_fs.MOV"
 )
@@ -41,17 +41,10 @@ for person in florian can jan petra; do
     video_name="${VIDEO[$person]}"
     clothing_image="${CLOTHING_PATH[$cloth]}"
 
-    out_cfg="configs/prompt_engi_yamls/${run_name}.yaml"
+    out_cfg="configs/optical_flow_yamls/${run_name}.yaml"
 
     # Base-YAML kopieren
     cp "$BASE_YAML" "$out_cfg"
-
-    # negative_prompt dynamisch: alle anderen Kleidungsstücke (zusätzlich zu "change pose")
-    neg_prompt="change pose"
-    for c in "${clothes[@]}"; do
-      [[ "$c" == "$cloth" ]] && continue
-      neg_prompt+=", change ${c}"
-    done
 
     # YAML-Felder ersetzen
     sed -i "s|^  scene_dir: .*|  scene_dir: \"${scene_dir}\"|g" "$out_cfg"
@@ -59,11 +52,9 @@ for person in florian can jan petra; do
     sed -i "s|^  run_name: .*|  run_name: \"${run_name}\"|g" "$out_cfg"
     sed -i "s|^  video_name: .*|  video_name: \"${video_name}\"|g" "$out_cfg"
     sed -i "s|^  clothing_image: .*|  clothing_image: \"${clothing_image}\"|g" "$out_cfg"
-    sed -i "s|^  negative_prompt: .*|  negative_prompt: \"${neg_prompt}\"|g" "$out_cfg"
 
     echo "Submitting ${run_name}"
     echo "  config: $out_cfg"
-    echo "  negative_prompt: $neg_prompt"
 
     if [[ "$SERIAL" -eq 1 ]]; then
       if [[ -z "$prev_jobid" ]]; then
