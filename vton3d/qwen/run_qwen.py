@@ -10,6 +10,8 @@ import cv2
 import matplotlib.cm as cm
 import numpy as np
 import bisect
+from safetensors.torch import load_file, save_file
+import tempfile
 
 from vton3d.utils.qwen_eval import (
     qwen_eval_masked,
@@ -161,6 +163,8 @@ def load_pipeline(model_path: str, use_lora: str = "", lora_scale: float = 1.0) 
     Load the Qwen Image Edit pipeline with CPU offload enabled.
     Optionally load a LoRA adapter from a .safetensors file or a directory/repo.
     """
+    from safetensors.torch import load_file, save_file
+    import tempfile
     pipe = QwenImageEditPlusPipeline.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
@@ -174,12 +178,45 @@ def load_pipeline(model_path: str, use_lora: str = "", lora_scale: float = 1.0) 
         lora_path = Path(use_lora).expanduser().resolve()
         adapter_name = "lora"
 
-        if lora_path.is_file():
-            pipe.load_lora_weights(
-                str(lora_path.parent),
-                weight_name=lora_path.name,
-                adapter_name=adapter_name,
+        if not lora_path.exists():
+            raise FileNotFoundError(f"LoRA path not found: {lora_path}")
+
+        if lora_path.is_file() and lora_path.suffix == ".safetensors":
+            sd = load_file(str(lora_path))
+
+            #remove extra training heads
+            drop_prefixes = (
+                "vggt_loss.",
+                "loss.",
+                "projector.",
             )
+
+            keys_before = list(sd.keys())
+            sd_filtered = {k: v for k, v in sd.items() if not k.startswith(drop_prefixes)}
+
+            dropped = [k for k in keys_before if k not in sd_filtered]
+            kept = len(sd_filtered)
+
+            if kept == 0:
+                raise ValueError(
+                    f"After filtering, no keys left in LoRA file. "
+                    f"Dropped={len(dropped)}. Example dropped: {dropped[:5]}"
+                )
+
+            if dropped:
+                print(f"[qwen] Filtering LoRA safetensors: dropped {len(dropped)} keys (e.g. {dropped[:4]})")
+
+            with tempfile.TemporaryDirectory() as td:
+                td = Path(td)
+                filtered_path = td / lora_path.name
+                save_file(sd_filtered, str(filtered_path))
+
+                pipe.load_lora_weights(
+                    str(filtered_path.parent),
+                    weight_name=filtered_path.name,
+                    adapter_name=adapter_name,
+                )
+
         else:
             pipe.load_lora_weights(
                 str(lora_path),
@@ -187,12 +224,12 @@ def load_pipeline(model_path: str, use_lora: str = "", lora_scale: float = 1.0) 
             )
 
         try:
-            pipe.set_adapters(adapter_name, adapter_weights=lora_scale)
+            pipe.set_adapters(adapter_name, adapter_weights=float(lora_scale))
         except Exception:
             pass
 
         try:
-            pipe.fuse_lora(lora_scale=lora_scale)
+            pipe.fuse_lora(lora_scale=float(lora_scale))
         except Exception:
             try:
                 pipe.fuse_lora()
