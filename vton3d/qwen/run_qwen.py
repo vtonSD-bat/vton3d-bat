@@ -28,35 +28,13 @@ from sapiens_inference.segmentation import SapiensSegmentation, SapiensSegmentat
 
 
 def parse_args() -> argparse.Namespace:
-    """
-    Parse command line arguments for the Qwen Image Edit batch processor.
-    """
     parser = argparse.ArgumentParser(description="Batch Qwen Image Edit pipeline.")
 
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        default="Qwen/Qwen-Image-Edit-2511",
-        help="Path or HuggingFace model ID."
-    )
-    parser.add_argument(
-        "--source_dir",
-        type=str,
-        required=True,
-        help="Directory containing person images."
-    )
-    parser.add_argument(
-        "--clothing_image",
-        type=str,
-        required=True,
-        help="Path to the clothing image that should replace the original clothing."
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        required=True,
-        help="Directory to save the edited images."
-    )
+    parser.add_argument("--model_path", type=str, default="Qwen/Qwen-Image-Edit-2511")
+    parser.add_argument("--source_dir", type=str, required=True)
+    parser.add_argument("--clothing_image", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
+
     parser.add_argument(
         "--prompt",
         type=str,
@@ -65,79 +43,35 @@ def parse_args() -> argparse.Namespace:
             "Do not invent new features. Keep the person identical: pose, body, "
             "face, hair, and background must remain unchanged."
         ),
-        help="Editing prompt."
     )
-    parser.add_argument(
-        "--negative_prompt",
-        type=str,
-        default="change pose",
-        help="Negative prompt."
-    )
-    parser.add_argument(
-        "--true_cfg_scale",
-        type=float,
-        default=4.0,
-        help="CFG scale value."
-    )
-    parser.add_argument(
-        "--num_inference_steps",
-        type=int,
-        default=20,
-        help="Number of inference steps."
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=0,
-        help="Random seed."
-    )
-    parser.add_argument(
-        "--extensions",
-        type=str,
-        nargs="+",
-        default=[".jpg", ".jpeg", ".png"],
-        help="File extensions treated as images."
-    )
+    parser.add_argument("--negative_prompt", type=str, default="change pose")
 
-    parser.add_argument(
-        "--use_lora",
-        type=str,
-        default="",
-        help="Path to LoRA .safetensors (empty => disable)."
-    )
-    parser.add_argument(
-        "--lora_scale",
-        type=float,
-        default=1.0,
-        help="LoRA scale (only if use_lora is set)."
-    )
+    parser.add_argument("--true_cfg_scale", type=float, default=4.0)
+    parser.add_argument("--num_inference_steps", type=int, default=20)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--extensions", type=str, nargs="+", default=[".jpg", ".jpeg", ".png"])
+
+    parser.add_argument("--use_lora", type=str, default="", help="Path to LoRA .safetensors (empty => disable).")
+    parser.add_argument("--lora_scale", type=float, default=1.0, help="LoRA scale (only if use_lora is set).")
 
     return parser.parse_args()
 
 
 def infer_eval_flag_from_clothing_path(clothing_path: Path) -> str:
-    """
-    Infer eval_flag ("upper" or "lower") from clothing image path.
-    Expects the path to contain a folder named 'upper' or 'lower'.
-    """
     parts = [p.lower() for p in clothing_path.parts]
 
     if "dress" in parts:
         return "dress"
 
     if "lower" in parts and "upper" in parts:
-        raise ValueError(
-            f"Ambiguous clothing path contains both 'upper' and 'lower': {clothing_path}"
-        )
+        raise ValueError(f"Ambiguous clothing path contains both 'upper' and 'lower': {clothing_path}")
 
     if "lower" in parts:
         return "lower"
     if "upper" in parts:
         return "upper"
 
-    raise ValueError(
-        f"Could not infer eval_flag from clothing path (missing 'upper'/'lower' folder): {clothing_path}"
-    )
+    raise ValueError(f"Could not infer eval_flag from clothing path: {clothing_path}")
 
 
 def infer_length_flag_from_clothing_path(clothing_path: Path) -> str:
@@ -151,16 +85,10 @@ def infer_length_flag_from_clothing_path(clothing_path: Path) -> str:
     if "short" in parts:
         return "short"
 
-    raise ValueError(
-        f"Could not infer length_flag from clothing path (missing 'long'/'short' folder): {clothing_path}"
-    )
+    raise ValueError(f"Could not infer length_flag from clothing path: {clothing_path}")
 
 
 def load_pipeline(model_path: str, use_lora: str = "", lora_scale: float = 1.0) -> QwenImageEditPlusPipeline:
-    """
-    Load the Qwen Image Edit pipeline with CPU offload enabled.
-    Optionally load a LoRA adapter from a .safetensors file or a directory/repo.
-    """
     pipe = QwenImageEditPlusPipeline.from_pretrained(
         model_path,
         torch_dtype=torch.bfloat16,
@@ -168,9 +96,8 @@ def load_pipeline(model_path: str, use_lora: str = "", lora_scale: float = 1.0) 
     pipe.set_progress_bar_config(disable=None)
     pipe.enable_model_cpu_offload()
 
-    # LoRA optional
     use_lora = (use_lora or "").strip()
-    if use_lora != "":
+    if use_lora:
         lora_path = Path(use_lora).expanduser().resolve()
         adapter_name = "lora"
 
@@ -182,18 +109,12 @@ def load_pipeline(model_path: str, use_lora: str = "", lora_scale: float = 1.0) 
 
             # remove extra training heads
             drop_prefixes = ("vggt_loss.",)
-
             keys_before = list(sd.keys())
             sd_filtered = {k: v for k, v in sd.items() if not k.startswith(drop_prefixes)}
-
             dropped = [k for k in keys_before if k not in sd_filtered]
-            kept = len(sd_filtered)
 
-            if kept == 0:
-                raise ValueError(
-                    f"After filtering, no keys left in LoRA file. "
-                    f"Dropped={len(dropped)}. Example dropped: {dropped[:5]}"
-                )
+            if len(sd_filtered) == 0:
+                raise ValueError(f"After filtering, no keys left in LoRA file. Dropped={len(dropped)}")
 
             if dropped:
                 print(f"[qwen] Filtering LoRA safetensors: dropped {len(dropped)} keys (e.g. {dropped[:4]})")
@@ -208,12 +129,8 @@ def load_pipeline(model_path: str, use_lora: str = "", lora_scale: float = 1.0) 
                     weight_name=filtered_path.name,
                     adapter_name=adapter_name,
                 )
-
         else:
-            pipe.load_lora_weights(
-                str(lora_path),
-                adapter_name=adapter_name,
-            )
+            pipe.load_lora_weights(str(lora_path), adapter_name=adapter_name)
 
         try:
             pipe.set_adapters(adapter_name, adapter_weights=float(lora_scale))
@@ -239,10 +156,6 @@ import re
 
 
 def _extract_frame_number(p: Path) -> int:
-    """
-    Extract trailing number from filename like 'florian_0150.jpg' -> 150
-    If not found, returns a large number so it sorts last.
-    """
     m = re.search(r"_([0-9]+)\.[^.]+$", p.name)
     if not m:
         return 10**18
@@ -250,29 +163,17 @@ def _extract_frame_number(p: Path) -> int:
 
 
 def get_image_files(source_dir: Path, extensions: list[str]) -> list[Path]:
-    """
-    Return all image files in a directory matching the allowed extensions,
-    sorted by numeric frame index extracted from filename.
-    """
     exts = {e.lower() for e in extensions}
-    files = [
-        p for p in source_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in exts
-    ]
+    files = [p for p in source_dir.iterdir() if p.is_file() and p.suffix.lower() in exts]
     return sorted(files, key=_extract_frame_number)
 
 
 def concat_refs_side_by_side(img_left: Image.Image, img_right: Image.Image) -> Image.Image:
-    """
-    Fallback if pipeline doesn't accept 4 images:
-    create a single reference image by concatenating left/right horizontally.
-    """
     img_left = img_left.convert("RGB")
     img_right = img_right.convert("RGB")
 
     h = max(img_left.height, img_right.height)
     w = img_left.width + img_right.width
-
     canvas = Image.new("RGB", (w, h))
     canvas.paste(img_left, (0, 0))
     canvas.paste(img_right, (img_left.width, 0))
@@ -280,9 +181,6 @@ def concat_refs_side_by_side(img_left: Image.Image, img_right: Image.Image) -> I
 
 
 def clear_gpu_cache():
-    """
-    Clear GPU and CPU memory caches after each image.
-    """
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
@@ -294,14 +192,10 @@ def align_and_overwrite_with_optical_flow(
     tgt_path: Path,
     composite_original_outside_mask: bool,
 ):
-    """
-    Runs MaskedOpticalFlow alignment (src->tgt), overwrites src_path in-place,
-    and returns debug info for logging.
-    """
     result = aligner.run_from_paths(
         src_path=src_path,
         tgt_path=tgt_path,
-        output_path=src_path,  # overwrite
+        output_path=src_path,
         debug_dir=None,
     )
 
@@ -340,7 +234,7 @@ def align_and_overwrite_with_optical_flow(
     norm = heatmap_gray / (heatmap_gray.max() + 1e-8)
     heatmap_rgb = (cm.get_cmap("Reds")(norm)[..., :3] * 255).astype(np.uint8)
 
-    diff2 = diff ** 2
+    diff2 = diff**2
     diff2_masked = diff2[mask_include]
     mse = float(diff2_masked.mean()) if diff2_masked.size > 0 else float("nan")
     psnr = float(10.0 * np.log10(1.0 / (mse + 1e-12))) if np.isfinite(mse) else float("nan")
@@ -371,10 +265,6 @@ def run_mof_and_get_aligned_pil(
     real_path: Path,
     composite_original_outside_mask: bool,
 ):
-    """
-    Runs optical flow to align out_path -> real_path, overwrites out_path,
-    logs to wandb under opticalflow/*, returns aligned PIL.Image.
-    """
     oflow = align_and_overwrite_with_optical_flow(
         aligner=aligner,
         src_path=out_path,
@@ -396,16 +286,6 @@ def run_mof_and_get_aligned_pil(
 
 
 def run_qwen_from_config_dict(qwen_cfg: dict):
-    """
-    Run the Qwen clothing edit batch using a config dictionary (e.g. cfg['qwen']).
-
-    Keeps:
-      - LoRA optional via use_lora/lora_scale
-      - auto solo_gen_every via solo_gen_ref_frames/solo_gen_ref_every
-      - anchor SOLO (no ref) at positions pos % solo_gen_every == 0
-    Reverts:
-      - NO pre-anchor skipping / NO fill-between with both neighbors
-    """
     wandb.define_metric("qwen/*", step_metric="qwen/image_index")
 
     model_path = qwen_cfg.get("model_path", "Qwen/Qwen-Image-Edit-2511")
@@ -413,15 +293,9 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     clothing_path = Path(qwen_cfg["clothing_image"])
     output_dir = Path(qwen_cfg["output_dir"])
 
-    default_prompt = qwen_cfg.get(
-        "prompt",
-        (
-            "Replace the person's original clothing with the clothing image. "
-            "Do not invent new features. Keep the person identical: pose, body, "
-            "face, hair, and background must remain unchanged."
-        ),
-    )
+    default_prompt = qwen_cfg.get("prompt", "")
     default_negative_prompt = qwen_cfg.get("negative_prompt", "change pose")
+
     true_cfg_scale = float(qwen_cfg.get("true_cfg_scale", 4.0))
     num_inference_steps = int(qwen_cfg.get("num_inference_steps", 20))
     seed = int(qwen_cfg.get("seed", 0))
@@ -436,27 +310,16 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
     clothing_image = Image.open(clothing_path).convert("RGB")
     image_files = get_image_files(source_dir, extensions)
-    if not image_files:
+    n = len(image_files)
+    if n == 0:
         raise RuntimeError(f"No images found in {source_dir}.")
 
+    # frames for neighbor-eval logging only
     frame_nums = [_extract_frame_number(p) for p in image_files]
     sorted_frames = sorted(frame_nums)
     path_by_frame = {fn: p for fn, p in zip(frame_nums, image_files)}
 
-    print(f"[frames] count={len(sorted_frames)} first={sorted_frames[:5]} last={sorted_frames[-5:]}")
-
-    front_frame = sorted_frames[0]
-    last_frame = sorted_frames[-1]
-    front_img_path = path_by_frame[front_frame]
-
-    first_num = _extract_frame_number(image_files[0])
-    if first_num != 0:
-        print(f"[WARN] expected front frame number 0, got {first_num} for {image_files[0].name}")
-
-    if len(image_files) > 1:
-        print("[order check]", image_files[0].name, image_files[1].name, image_files[-1].name)
-    else:
-        print("[order check]", image_files[0].name)
+    print(f"[frames] count={n} first={sorted_frames[:5]} last={sorted_frames[-5:]}")
 
     use_lora = qwen_cfg.get("use_lora", "")
     lora_scale = float(qwen_cfg.get("lora_scale", 1.0))
@@ -471,28 +334,22 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
     )
 
     eval_flag = infer_eval_flag_from_clothing_path(clothing_path)
-    if eval_flag == "dress":
-        length_flag = None
-    else:
-        length_flag = infer_length_flag_from_clothing_path(clothing_path)
-
+    length_flag = None if eval_flag == "dress" else infer_length_flag_from_clothing_path(clothing_path)
     print(f"[qwen] inferred eval_flag='{eval_flag}', length_flag='{length_flag}' from clothing_image='{clothing_path}'")
 
     prompts_map = qwen_cfg.get("prompts", {}) or {}
     negative_prompts_map = qwen_cfg.get("negative_prompts", {}) or {}
 
     base_prompt = prompts_map.get(eval_flag, default_prompt)
-    print(f"Prompt:{base_prompt}")
+    negative_prompt = negative_prompts_map.get(eval_flag, default_negative_prompt)
+
+    print(f"Prompt: {base_prompt}")
+    print(f"negative Prompt: {negative_prompt}")
 
     def tweak_base_prompt_for_n1_non_front(p: str) -> str:
         needle = "Keep background, pose, face, hair, skin, body shape, all other clothes of the person,"
         repl = "Keep background, pose, face, hair, skin, body shape, all other clothes of the person in image 1,"
-        if needle in p:
-            return p.replace(needle, repl, 1)
-        return p
-
-    negative_prompt = negative_prompts_map.get(eval_flag, default_negative_prompt)
-    print(f"negative Prompt: {negative_prompt}")
+        return p.replace(needle, repl, 1) if needle in p else p
 
     PREFIX_SINGLE_REF = (
         "The person in image 1 wears the exact garment from image 2, "
@@ -510,7 +367,6 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             return base_prompt
         if ref_kind == "front":
             return base_prompt
-
         base_n1 = tweak_base_prompt_for_n1_non_front(base_prompt)
         if ref_kind == "single":
             return PREFIX_SINGLE_REF + base_n1
@@ -518,9 +374,9 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             return PREFIX_BOTH_REFS + base_n1
         return base_n1
 
+    # optional optical flow
     mof_cfg_dict = qwen_cfg.get("_masked_optical_flow", None)
     do_integrated_mof = mof_cfg_dict is not None
-
     aligner = None
     composite_original_outside_mask = False
 
@@ -528,7 +384,6 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         from vton3d.utils.masked_optical_flow import MaskedOpticalFlow, MaskedOpticalFlowConfig
 
         composite_original_outside_mask = bool(mof_cfg_dict.get("composite_original_outside_mask", False))
-
         mof_cfg = MaskedOpticalFlowConfig(
             target_h=int(mof_cfg_dict.get("target_h", 1248)),
             target_w=int(mof_cfg_dict.get("target_w", 704)),
@@ -542,21 +397,6 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         )
         aligner = MaskedOpticalFlow(mof_cfg)
 
-    use_n_1 = bool(qwen_cfg.get("use_n_1", False))
-    n = len(image_files)
-
-    # auto-scaling solo_gen_every: ref_every @ ref_frames
-    ref_frames = int(qwen_cfg.get("solo_gen_ref_frames", 30) or 30)
-    ref_every = int(qwen_cfg.get("solo_gen_ref_every", 0) or 0)
-
-    if ref_every <= 0:
-        solo_gen_every = 0
-    else:
-        import math
-        solo_gen_every = max(1, int(math.ceil(ref_every * (n / ref_frames))))
-
-    print(f"[qwen] solo_gen_every(auto)={solo_gen_every} (n={n}, ref={ref_every}@{ref_frames})")
-
     def log_neighbor_fashionclip(curr_img_path: Path, curr_out_path: Path):
         f = _extract_frame_number(curr_img_path)
         pos = bisect.bisect_left(sorted_frames, f)
@@ -567,7 +407,6 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             prev_f = sorted_frames[pos - 1]
             prev_img = path_by_frame[prev_f]
             prev_out_path = output_dir / f"{prev_img.stem}.png"
-
             if prev_out_path.exists():
                 sim, m_prev, m_curr = qwen_fashionclip_similarity_neighbor_masked_clothing(
                     person_img_a_path=str(prev_out_path),
@@ -585,24 +424,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             else:
                 wandb.log({f"qwen/fc_neighbor_prev_{eval_flag}_{length_flag}": float("nan")})
 
-        if f == last_frame:
-            front_out_path = output_dir / f"{front_img_path.stem}.png"
-            if front_out_path.exists():
-                sim_ff, m_front, m_last = qwen_fashionclip_similarity_neighbor_masked_clothing(
-                    person_img_a_path=str(front_out_path),
-                    person_img_b_path=str(curr_out_path),
-                    flag=eval_flag,
-                    estimator=estimator,
-                    clip_device="cuda",
-                    return_masked_rgb=True,
-                )
-                wandb.log({
-                    f"qwen/fc_neighbor_front_{eval_flag}_{length_flag}": sim_ff,
-                    f"qwen/masked_neighbor_front_{eval_flag}": wandb.Image(m_front, caption=f"{front_out_path.stem}_masked_front"),
-                    f"qwen/masked_neighbor_last_{eval_flag}": wandb.Image(m_last, caption=f"{curr_out_path.stem}_masked_last"),
-                })
-            else:
-                wandb.log({f"qwen/fc_neighbor_front_{eval_flag}_{length_flag}": float("nan")})
+    img_count = 0
 
     def save_and_align(img_path: Path, out_img_raw: Image.Image) -> tuple[Path, Image.Image]:
         out_path = output_dir / f"{img_path.stem}.png"
@@ -667,11 +489,10 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             "qwen/face_sim_input_vs_output": face_sim,
         })
 
-    def log_inputs_for_frame(person_image: Image.Image, img_path: Path, ref_kind: str, ref_a: Image.Image | None = None, ref_b: Image.Image | None = None):
+    def log_inputs(person_image: Image.Image, img_path: Path, ref_kind: str, ref_a: Image.Image | None = None, ref_b: Image.Image | None = None):
         payload = {
             "qwen/input_image": wandb.Image(person_image, caption=img_path.name),
             "qwen/clothing_image": wandb.Image(clothing_image, caption=clothing_path.name),
-            "qwen/use_n_1": 1,
             "qwen/ref_kind": ref_kind,
         }
         if ref_a is not None:
@@ -680,159 +501,111 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             payload["qwen/ref_b"] = wandb.Image(ref_b, caption=f"{img_path.stem}_ref_b")
         wandb.log(payload)
 
-    # ====== non n-1 path ======
+    use_n_1 = bool(qwen_cfg.get("use_n_1", False))
+
+    # =========================
+    # Non n-1 (unchanged simple loop)
+    # =========================
     if not use_n_1:
-        img_count = 0
         for img_path in image_files:
             person_image = Image.open(img_path).convert("RGB")
-            generator = torch.Generator(device="cpu").manual_seed(seed)
+            gen = torch.Generator(device="cpu").manual_seed(seed)
 
             with torch.inference_mode():
-                output = pipeline(
+                out = pipeline(
                     image=[person_image, clothing_image],
                     prompt=build_prompt("front", use_n_1),
-                    generator=generator,
+                    generator=gen,
                     true_cfg_scale=true_cfg_scale,
                     negative_prompt=negative_prompt,
                     num_inference_steps=num_inference_steps,
                     width=704,
                     height=1248,
                 )
-            out_img_raw = output.images[0]
-            out_path, _ = save_and_align(img_path, out_img_raw)
 
+            out_img_raw = out.images[0]
+            out_path, _ = save_and_align(img_path, out_img_raw)
             wandb.log({"qwen/input_image": wandb.Image(person_image, caption=img_path.name), "qwen/use_n_1": 0})
             post_eval_and_log(img_path, out_path, out_img_raw, use_n1_value=0)
             clear_gpu_cache()
         return
 
-    # ====== use_n_1 path ======
-    if n == 0:
-        return
-
-    img_count = 0
-
-    # front
+    # =========================
+    # n-1 with TWO seeds: front idx=0, back idx=(n-1)//2
+    # =========================
     front_idx = 0
-    front_path = image_files[front_idx]
-    front_person = Image.open(front_path).convert("RGB")
-    generator = torch.Generator(device="cpu").manual_seed(seed)
+    back_idx = (n - 1) // 2  # for 30 frames -> 14
 
-    with torch.inference_mode():
-        output = pipeline(
-            image=[front_person, clothing_image],
-            prompt=build_prompt("front", use_n_1),
-            generator=generator,
-            true_cfg_scale=true_cfg_scale,
-            negative_prompt=negative_prompt,
-            num_inference_steps=num_inference_steps,
-            width=704,
-            height=1248,
-        )
-    front_out_raw = output.images[0]
-    front_out_path, front_for_ref = save_and_align(front_path, front_out_raw)
+    print(f"[qwen] seeds: front_idx={front_idx}, back_idx={back_idx}, n={n}")
 
-    img_count += 1
-    wandb.log({
-        "qwen/input_image": wandb.Image(front_person, caption=front_path.name),
-        "qwen/output_image": wandb.Image(front_out_raw, caption=front_out_path.name),
-        "qwen/image_index": img_count,
-        "qwen/use_n_1": 1,
-        "qwen/ref_kind": "none_front",
-    })
-    log_neighbor_fashionclip(curr_img_path=front_path, curr_out_path=front_out_path)
-    clear_gpu_cache()
+    pred_by_idx: dict[int, Image.Image] = {}
+    generated: set[int] = set()
 
-    ref_right = front_for_ref
-    ref_left = front_for_ref
-
-    def is_anchor_pos(p: int) -> bool:
-        return solo_gen_every > 0 and p != 0 and (p % solo_gen_every == 0)
-
-    generated_idx: set[int] = {front_idx}
-
-    l, r = 1, n - 1
-    toggle = True
-
-    while l < r:
-        if toggle:
-            idx = l
-            l += 1
-            side = "right"
-        else:
-            idx = r
-            r -= 1
-            side = "left"
-        toggle = not toggle
-
-        if idx in generated_idx:
-            continue
-
+    def gen_solo(idx: int, tag: str) -> Image.Image:
         img_path = image_files[idx]
-        frame_number = _extract_frame_number(img_path)
-        pos = bisect.bisect_left(sorted_frames, frame_number)
+        person = Image.open(img_path).convert("RGB")
+        log_inputs(person, img_path, ref_kind=f"solo_{tag}")
 
-        do_solo = (solo_gen_every > 0 and frame_number != front_frame and is_anchor_pos(pos))
-
-        person_image = Image.open(img_path).convert("RGB")
         gen = torch.Generator(device="cpu").manual_seed(seed)
+        with torch.inference_mode():
+            out = pipeline(
+                image=[person, clothing_image],
+                prompt=build_prompt("front", use_n_1),
+                generator=gen,
+                true_cfg_scale=true_cfg_scale,
+                negative_prompt=negative_prompt,
+                num_inference_steps=num_inference_steps,
+                width=704,
+                height=1248,
+            )
 
-        if do_solo:
-            log_inputs_for_frame(person_image, img_path, ref_kind="solo")
-            with torch.inference_mode():
-                out = pipeline(
-                    image=[person_image, clothing_image],
-                    prompt=build_prompt("front", use_n_1),
-                    generator=gen,
-                    true_cfg_scale=true_cfg_scale,
-                    negative_prompt=negative_prompt,
-                    num_inference_steps=num_inference_steps,
-                    width=704,
-                    height=1248,
-                )
-        else:
-            ref = ref_right if side == "right" else ref_left
-            log_inputs_for_frame(person_image, img_path, ref_kind=f"single_{side}", ref_a=ref)
-            with torch.inference_mode():
-                out = pipeline(
-                    image=[person_image, clothing_image, ref],
-                    prompt=build_prompt("single", use_n_1),
-                    generator=gen,
-                    true_cfg_scale=true_cfg_scale,
-                    negative_prompt=negative_prompt,
-                    num_inference_steps=num_inference_steps,
-                    width=704,
-                    height=1248,
-                )
+        out_raw = out.images[0]
+        out_path, out_for_ref = save_and_align(img_path, out_raw)
+        pred_by_idx[idx] = out_for_ref
+        generated.add(idx)
 
-        out_img_raw = out.images[0]
-        out_path, out_img_for_ref = save_and_align(img_path, out_img_raw)
-
-        generated_idx.add(idx)
-
-        post_eval_and_log(img_path, out_path, out_img_raw, use_n1_value=1)
-
-        if side == "right":
-            ref_right = out_img_for_ref
-        else:
-            ref_left = out_img_for_ref
-
+        post_eval_and_log(img_path, out_path, out_raw, use_n1_value=1)
         clear_gpu_cache()
+        return out_for_ref
 
-    # meet in middle: both refs
-    if l == r and n > 1:
-        idx = l
+    def gen_single(idx: int, ref_img: Image.Image, tag: str) -> Image.Image:
         img_path = image_files[idx]
-        person_image = Image.open(img_path).convert("RGB")
+        person = Image.open(img_path).convert("RGB")
+        log_inputs(person, img_path, ref_kind=f"single_{tag}", ref_a=ref_img)
+
+        gen = torch.Generator(device="cpu").manual_seed(seed)
+        with torch.inference_mode():
+            out = pipeline(
+                image=[person, clothing_image, ref_img],
+                prompt=build_prompt("single", use_n_1),
+                generator=gen,
+                true_cfg_scale=true_cfg_scale,
+                negative_prompt=negative_prompt,
+                num_inference_steps=num_inference_steps,
+                width=704,
+                height=1248,
+            )
+
+        out_raw = out.images[0]
+        out_path, out_for_ref = save_and_align(img_path, out_raw)
+        pred_by_idx[idx] = out_for_ref
+        generated.add(idx)
+
+        post_eval_and_log(img_path, out_path, out_raw, use_n1_value=1)
+        clear_gpu_cache()
+        return out_for_ref
+
+    def gen_merge(idx: int, ref_left: Image.Image, ref_right: Image.Image, tag: str) -> Image.Image:
+        img_path = image_files[idx]
+        person = Image.open(img_path).convert("RGB")
+        log_inputs(person, img_path, ref_kind=f"merge_{tag}", ref_a=ref_left, ref_b=ref_right)
+
         gen = torch.Generator(device="cpu").manual_seed(seed)
 
-        log_inputs_for_frame(person_image, img_path, ref_kind="both_neighbors", ref_a=ref_left, ref_b=ref_right)
-
-        ref_combined = None
         try:
             with torch.inference_mode():
                 out = pipeline(
-                    image=[person_image, clothing_image, ref_left, ref_right],
+                    image=[person, clothing_image, ref_left, ref_right],
                     prompt=build_prompt("both", use_n_1),
                     generator=gen,
                     true_cfg_scale=true_cfg_scale,
@@ -845,7 +618,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             ref_combined = concat_refs_side_by_side(ref_left, ref_right)
             with torch.inference_mode():
                 out = pipeline(
-                    image=[person_image, clothing_image, ref_combined],
+                    image=[person, clothing_image, ref_combined],
                     prompt=build_prompt("both", use_n_1),
                     generator=gen,
                     true_cfg_scale=true_cfg_scale,
@@ -854,21 +627,147 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                     width=704,
                     height=1248,
                 )
+            wandb.log({"qwen/ref_combined_fallback": wandb.Image(ref_combined, caption=f"{img_path.stem}_combined_ref")})
 
-        out_img_raw = out.images[0]
-        out_path, _ = save_and_align(img_path, out_img_raw)
+        out_raw = out.images[0]
+        out_path, out_for_ref = save_and_align(img_path, out_raw)
+        pred_by_idx[idx] = out_for_ref
+        generated.add(idx)
 
-        if ref_combined is not None:
-            wandb.log({"qwen/ref_combined_fallback": wandb.Image(ref_combined, caption="combined_ref_fallback")})
-
-        post_eval_and_log(img_path, out_path, out_img_raw, use_n1_value=1)
+        post_eval_and_log(img_path, out_path, out_raw, use_n1_value=1)
         clear_gpu_cache()
+        return out_for_ref
+
+    # generate seeds
+    front_ref_right = gen_solo(front_idx, tag="front_seed")  # for idx=1,2,3...
+    front_ref_left = front_ref_right                           # for idx=n-1,n-2...
+
+    if back_idx not in generated:
+        back_ref_left = gen_solo(back_idx, tag="back_seed")     # for back_idx-1, back_idx-2...
+        back_ref_right = back_ref_left                          # for back_idx+1, back_idx+2...
+    else:
+        back_ref_left = pred_by_idx[back_idx]
+        back_ref_right = pred_by_idx[back_idx]
+
+    # pointers (indices in image_files order)
+    f_r = front_idx + 1
+    f_l = n - 1
+    b_l = back_idx - 1
+    b_r = back_idx + 1
+
+    # helper: if idx has both direct neighbors already generated -> do merge
+    def has_both_neighbors(idx: int) -> bool:
+        if idx - 1 < 0 or idx + 1 >= n:
+            return False
+        return (idx - 1) in generated and (idx + 1) in generated
+
+    # round-robin schedule: front-right, front-left, back-left, back-right
+    order = ["f_r", "f_l", "b_l", "b_r"]
+
+    def next_candidate(which: str) -> int | None:
+        nonlocal f_r, f_l, b_l, b_r
+
+        if which == "f_r":
+            while f_r < n and f_r in generated:
+                f_r += 1
+            return f_r if f_r < n else None
+
+        if which == "f_l":
+            while f_l >= 0 and f_l in generated:
+                f_l -= 1
+            return f_l if f_l >= 0 else None
+
+        if which == "b_l":
+            while b_l >= 0 and b_l in generated:
+                b_l -= 1
+            return b_l if b_l >= 0 else None
+
+        if which == "b_r":
+            while b_r < n and b_r in generated:
+                b_r += 1
+            return b_r if b_r < n else None
+
+        return None
+
+    # main loop until all generated
+    while len(generated) < n:
+        progressed = False
+
+        for which in order:
+            idx = next_candidate(which)
+            if idx is None or idx in generated:
+                continue
+
+            # if this idx already got boxed in by two generated neighbors -> merge
+            if has_both_neighbors(idx):
+                left_ref = pred_by_idx[idx - 1]
+                right_ref = pred_by_idx[idx + 1]
+                gen_merge(idx, left_ref, right_ref, tag=f"{idx-1}_{idx+1}")
+                progressed = True
+
+                # advance pointer used
+                if which == "f_r":
+                    f_r += 1
+                elif which == "f_l":
+                    f_l -= 1
+                elif which == "b_l":
+                    b_l -= 1
+                elif which == "b_r":
+                    b_r += 1
+                continue
+
+            # otherwise single-step from its chain ref
+            if which == "f_r":
+                front_ref_right = gen_single(idx, front_ref_right, tag="front_right")
+                f_r += 1
+                progressed = True
+                continue
+
+            if which == "f_l":
+                front_ref_left = gen_single(idx, front_ref_left, tag="front_left")
+                f_l -= 1
+                progressed = True
+                continue
+
+            if which == "b_l":
+                back_ref_left = gen_single(idx, back_ref_left, tag="back_left")
+                b_l -= 1
+                progressed = True
+                continue
+
+            if which == "b_r":
+                back_ref_right = gen_single(idx, back_ref_right, tag="back_right")
+                b_r += 1
+                progressed = True
+                continue
+
+        if not progressed:
+            # safety fallback: find any remaining idx and generate from nearest available neighbor
+            remaining = [i for i in range(n) if i not in generated]
+            if not remaining:
+                break
+            idx = remaining[0]
+
+            if has_both_neighbors(idx):
+                gen_merge(idx, pred_by_idx[idx - 1], pred_by_idx[idx + 1], tag="fallback_merge")
+            else:
+                # choose any available neighbor as ref
+                ref = None
+                if (idx - 1) in generated:
+                    ref = pred_by_idx[idx - 1]
+                elif (idx + 1) in generated:
+                    ref = pred_by_idx[idx + 1]
+                else:
+                    # extreme edge case (shouldn't happen): solo
+                    ref = None
+
+                if ref is None:
+                    gen_solo(idx, tag="fallback_solo")
+                else:
+                    gen_single(idx, ref, tag="fallback_single")
 
 
 def main():
-    """
-    CLI entry point for running Qwen clothing edit from the command line.
-    """
     args = parse_args()
     qwen_cfg = {
         "model_path": args.model_path,
@@ -883,6 +782,8 @@ def main():
         "extensions": args.extensions,
         "use_lora": args.use_lora,
         "lora_scale": args.lora_scale,
+        # keep n-1 controllable from yaml
+        "use_n_1": True,
     }
     run_qwen_from_config_dict(qwen_cfg)
 
