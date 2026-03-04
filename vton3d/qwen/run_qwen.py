@@ -503,9 +503,6 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
 
     use_n_1 = bool(qwen_cfg.get("use_n_1", False))
 
-    # =========================
-    # Non n-1 (unchanged simple loop)
-    # =========================
     if not use_n_1:
         for img_path in image_files:
             person_image = Image.open(img_path).convert("RGB")
@@ -530,11 +527,8 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             clear_gpu_cache()
         return
 
-    # =========================
-    # n-1 with TWO seeds: front idx=0, back idx=(n-1)//2
-    # =========================
     front_idx = 0
-    back_idx = (n - 1) // 2  # for 30 frames -> 14
+    back_idx = (n - 1) // 2  # for 30 frames = 14
 
     print(f"[qwen] seeds: front_idx={front_idx}, back_idx={back_idx}, n={n}")
 
@@ -638,30 +632,27 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
         clear_gpu_cache()
         return out_for_ref
 
-    # generate seeds
-    front_ref_right = gen_solo(front_idx, tag="front_seed")  # for idx=1,2,3...
-    front_ref_left = front_ref_right                           # for idx=n-1,n-2...
+    front_ref_right = gen_solo(front_idx, tag="front_seed")
+    front_ref_left = front_ref_right
 
     if back_idx not in generated:
-        back_ref_left = gen_solo(back_idx, tag="back_seed")     # for back_idx-1, back_idx-2...
-        back_ref_right = back_ref_left                          # for back_idx+1, back_idx+2...
+        back_ref_left = gen_solo(back_idx, tag="back_seed")
+        back_ref_right = back_ref_left
     else:
         back_ref_left = pred_by_idx[back_idx]
         back_ref_right = pred_by_idx[back_idx]
 
-    # pointers (indices in image_files order)
     f_r = front_idx + 1
     f_l = n - 1
     b_l = back_idx - 1
     b_r = back_idx + 1
 
-    # helper: if idx has both direct neighbors already generated -> do merge
     def has_both_neighbors(idx: int) -> bool:
         if idx - 1 < 0 or idx + 1 >= n:
             return False
         return (idx - 1) in generated and (idx + 1) in generated
 
-    # round-robin schedule: front-right, front-left, back-left, back-right
+    #schedule: front-right, front-left, back-left, back-right
     order = ["f_r", "f_l", "b_l", "b_r"]
 
     def next_candidate(which: str) -> int | None:
@@ -698,7 +689,6 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
             if idx is None or idx in generated:
                 continue
 
-            # if this idx already got boxed in by two generated neighbors -> merge
             if has_both_neighbors(idx):
                 left_ref = pred_by_idx[idx - 1]
                 right_ref = pred_by_idx[idx + 1]
@@ -716,7 +706,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                     b_r += 1
                 continue
 
-            # otherwise single-step from its chain ref
+            #otherwise single-step from its chain ref
             if which == "f_r":
                 front_ref_right = gen_single(idx, front_ref_right, tag="front_right")
                 f_r += 1
@@ -742,7 +732,7 @@ def run_qwen_from_config_dict(qwen_cfg: dict):
                 continue
 
         if not progressed:
-            # safety fallback: find any remaining idx and generate from nearest available neighbor
+            #safety fallback: find any remaining idx and generate from nearest available neighbor
             remaining = [i for i in range(n) if i not in generated]
             if not remaining:
                 break
